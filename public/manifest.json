@@ -1,0 +1,23 @@
+{
+  "id": "/",
+  "name": "Hệ Thống Quản Lý Dân Cư",
+  "short_name": "QLDC",
+  "description": "Hệ thống quản lý dân cư Khu phố Ninh Phú",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0b7a43",
+  "icons": [
+    {
+      "src": "/logo-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

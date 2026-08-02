@@ -1,0 +1,6 @@
+{
+  "name": "Quản lý dân cư Tổ dân phố",
+  "description": "Hệ thống quản lý cư dân, hộ gia đình, nhân khẩu, y tế, giáo dục, lao động, hộ kinh doanh và an sinh xã hội cấp tổ dân phố, thôn, ấp, khu phố tại Việt Nam.",
+  "requestFramePermissions": ["camera", "microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

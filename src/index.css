@@ -1,0 +1,270 @@
+@import "tailwindcss";
+
+/* Smooth horizontal scrolling and scrollbars */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbars for a modern look */
+.scrollbar-thin::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.5);
+  border-radius: 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.8);
+}
+
+@media print {
+  body {
+    background-color: white !important;
+    color: black !important;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+  .print\:block {
+    display: block !important;
+  }
+  .print\:p-0 {
+    padding: 0 !important;
+  }
+  .print\:shadow-none {
+    box-shadow: none !important;
+  }
+  .print\:static {
+    position: static !important;
+  }
+  .print\:max-h-full {
+    max-height: none !important;
+  }
+}
+
+/* Bottom spacing for all scrollable view containers to prevent clipping from the footer */
+#dashboard-view-container::after,
+#household-view-container::after,
+#demographics-change-container::after,
+#business-view-container::after,
+#social-security-container::after,
+#new-rural-container::after,
+#resident-view-container::after,
+#quarter-documents-root::after,
+#ai-copilot-container::after,
+#allowed-emails-container::after,
+#admin-panel-container::after {
+  content: "";
+  display: block;
+  height: 96px; /* equal to h-24 */
+  width: 100%;
+  flex-shrink: 0;
+  clear: both;
+}
+
+@media (min-width: 640px) {
+  #dashboard-view-container::after,
+  #household-view-container::after,
+  #demographics-change-container::after,
+  #business-view-container::after,
+  #social-security-container::after,
+  #new-rural-container::after,
+  #resident-view-container::after,
+  #quarter-documents-root::after,
+  #ai-copilot-container::after,
+  #allowed-emails-container::after,
+  #admin-panel-container::after {
+    height: 128px; /* equal to h-32 */
+  }
+}
+
+/* Custom Dark Theme Overrides */
+.dark-theme-custom {
+  --background: #0b0f19;
+  --card: #111827;
+  --card-hover: #1e293b;
+  --border: rgba(148, 163, 184, 0.2);
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --text-dark: #cbd5e1;
+}
+
+.dark-theme-custom,
+.dark-theme-custom .bg-\[\#F1F5F9\],
+.dark-theme-custom .bg-slate-100 {
+  background-color: var(--background) !important;
+}
+
+.dark-theme-custom .bg-white {
+  background-color: var(--card) !important;
+}
+
+.dark-theme-custom .bg-slate-50,
+.dark-theme-custom .bg-gray-50,
+.dark-theme-custom .bg-slate-100\/50,
+.dark-theme-custom .bg-slate-50\/50,
+.dark-theme-custom .bg-emerald-50\/30,
+.dark-theme-custom .bg-emerald-50,
+.dark-theme-custom .bg-blue-50,
+.dark-theme-custom .bg-indigo-50\/50 {
+  background-color: #1e293b !important;
+}
+
+.dark-theme-custom .bg-slate-100,
+.dark-theme-custom .bg-gray-100,
+.dark-theme-custom .bg-slate-200 {
+  background-color: #1e293b !important;
+}
+
+.dark-theme-custom .border-slate-100,
+.dark-theme-custom .border-slate-200,
+.dark-theme-custom .border-slate-300,
+.dark-theme-custom .border-slate-300\/60,
+.dark-theme-custom .border-gray-100,
+.dark-theme-custom .border-gray-200,
+.dark-theme-custom .border-slate-200\/60,
+.dark-theme-custom .border-emerald-200\/60,
+.dark-theme-custom .border-emerald-200,
+.dark-theme-custom .divide-slate-100 > *,
+.dark-theme-custom .divide-y > * {
+  border-color: var(--border) !important;
+}
+
+/* Highly visible bright text colors for dark mode */
+.dark-theme-custom [class*="text-slate-"],
+.dark-theme-custom [class*="text-gray-"],
+.dark-theme-custom [class*="text-neutral-"] {
+  color: #e2e8f0;
+}
+
+/* Specific overrides for maximum legibility */
+.dark-theme-custom .text-slate-950,
+.dark-theme-custom .text-slate-900,
+.dark-theme-custom .text-slate-800,
+.dark-theme-custom .text-gray-950,
+.dark-theme-custom .text-gray-900,
+.dark-theme-custom .text-gray-800,
+.dark-theme-custom .text-neutral-950,
+.dark-theme-custom .text-neutral-900,
+.dark-theme-custom .text-neutral-800,
+.dark-theme-custom .text-\[\#1e293b\],
+.dark-theme-custom .text-\[\#1E293B\] {
+  color: #f8fafc !important; /* Pure off-white for headings */
+}
+
+.dark-theme-custom .text-slate-700,
+.dark-theme-custom .text-slate-600,
+.dark-theme-custom .text-gray-700,
+.dark-theme-custom .text-gray-600,
+.dark-theme-custom .text-neutral-700,
+.dark-theme-custom .text-neutral-600 {
+  color: #cbd5e1 !important; /* Elegant light gray for secondary text */
+}
+
+.dark-theme-custom .text-slate-500,
+.dark-theme-custom .text-slate-400,
+.dark-theme-custom .text-gray-500,
+.dark-theme-custom .text-gray-400,
+.dark-theme-custom .text-neutral-500,
+.dark-theme-custom .text-neutral-400,
+.dark-theme-custom .text-\[\#64748B\] {
+  color: #94a3b8 !important; /* Muted gray for labels and timestamp */
+}
+
+/* Colored dark texts that need high contrast in dark mode */
+.dark-theme-custom .text-slate-850,
+.dark-theme-custom .text-slate-900,
+.dark-theme-custom .text-slate-950 {
+  color: #f8fafc !important;
+}
+
+.dark-theme-custom .bg-slate-850,
+.dark-theme-custom .bg-slate-850\/60 {
+  background-color: #1e293b !important;
+}
+
+.dark-theme-custom .border-slate-850 {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+/* Colored dark texts that need high contrast in dark mode */
+.dark-theme-custom .text-rose-950,
+.dark-theme-custom .text-rose-900,
+.dark-theme-custom .text-rose-800,
+.dark-theme-custom .text-rose-850 {
+  color: #fca5a5 !important; /* Light rose instead of dark red */
+}
+.dark-theme-custom .bg-rose-50 {
+  background-color: #3b1315 !important; /* Dark red bg for alerts */
+}
+
+.dark-theme-custom .text-emerald-950,
+.dark-theme-custom .text-emerald-900,
+.dark-theme-custom .text-emerald-800,
+.dark-theme-custom .text-emerald-850 {
+  color: #6ee7b7 !important; /* Bright emerald */
+}
+
+.dark-theme-custom .text-blue-950,
+.dark-theme-custom .text-blue-900,
+.dark-theme-custom .text-blue-850,
+.dark-theme-custom .text-blue-800,
+.dark-theme-custom .text-indigo-950,
+.dark-theme-custom .text-indigo-900 {
+  color: #93c5fd !important; /* Light blue/indigo */
+}
+
+.dark-theme-custom .bg-blue-50 {
+  background-color: #1e293b !important;
+  border-color: #3b82f6 !important;
+  color: #bfdbfe !important;
+}
+
+.dark-theme-custom input,
+.dark-theme-custom select,
+.dark-theme-custom textarea {
+  background-color: #1f2937 !important;
+  color: var(--text-main) !important;
+  border-color: var(--border) !important;
+}
+
+.dark-theme-custom option {
+  background-color: #1f2937 !important;
+  color: #f8fafc !important;
+}
+
+.dark-theme-custom input:focus,
+.dark-theme-custom select:focus,
+.dark-theme-custom textarea:focus {
+  outline-color: #3b82f6 !important;
+}
+
+/* Hover effects and special buttons in dark mode */
+.dark-theme-custom .hover\:bg-slate-50:hover,
+.dark-theme-custom .hover\:bg-slate-100:hover,
+.dark-theme-custom .hover\:bg-gray-50:hover {
+  background-color: var(--card-hover) !important;
+}
+
+/* Modals backdrop */
+.dark-theme-custom .bg-slate-900\/60 {
+  background-color: rgba(3, 7, 18, 0.8) !important;
+}
+
+/* Overrides for specific labels and headers */
+.dark-theme-custom header.bg-white {
+  background-color: #111827 !important;
+  border-bottom-color: var(--border) !important;
+}
+
+.dark-theme-custom .shadow-xs,
+.dark-theme-custom .shadow-md,
+.dark-theme-custom .shadow-xl,
+.dark-theme-custom .shadow-2xl {
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5) !important;
+}

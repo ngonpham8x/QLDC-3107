@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Catch-all default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // Households rules
+    match /households/{householdId} {
+      allow get, write: if isValidId(householdId);
+      allow list: if true;
+    }
+
+    // Residents rules
+    match /residents/{residentId} {
+      allow get, write: if isValidId(residentId);
+      allow list: if true;
+    }
+
+    // Demographics changes rules
+    match /changes/{changeId} {
+      allow get, write: if isValidId(changeId);
+      allow list: if true;
+    }
+
+    // Businesses rules
+    match /businesses/{businessId} {
+      allow get, write: if isValidId(businessId);
+      allow list: if true;
+    }
+
+    // Criteria rules
+    match /criteria/{criteriaId} {
+      allow get, write: if isValidId(criteriaId);
+      allow list: if true;
+    }
+
+    // Logs rules
+    match /logs/{logId} {
+      allow get, write: if isValidId(logId);
+      allow list: if true;
+    }
+
+    // AllowedEmails rules
+    match /allowedEmails/{allowedEmailId} {
+      allow get, write: if isValidId(allowedEmailId);
+      allow list: if true;
+    }
+
+    // PendingRegistrations rules
+    match /pendingRegistrations/{pendingRegistrationId} {
+      allow get, write: if isValidId(pendingRegistrationId);
+      allow list: if true;
+    }
+
+    // Documents rules
+    match /documents/{documentId} {
+      allow get, write: if isValidId(documentId);
+      allow list: if true;
+    }
+
+    // DismissedEmails rules
+    match /dismissedEmails/{dismissedEmailId} {
+      allow get, write: if isValidId(dismissedEmailId);
+      allow list: if true;
+    }
+  }
+}

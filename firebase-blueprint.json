@@ -1,0 +1,238 @@
+{
+  "entities": {
+    "Household": {
+      "title": "Household",
+      "description": "Sơ đồ hộ gia đình",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "address": { "type": "string" },
+        "wardId": { "type": "string" },
+        "quarterId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "status": { "type": "string" },
+        "isCulturalFamily": { "type": "boolean" },
+        "isPolicyFamily": { "type": "boolean" },
+        "isMeritoriousFamily": { "type": "boolean" },
+        "isWasteFeePaid": { "type": "boolean" },
+        "wasteCollectionStatus": { "type": "string" },
+        "waterSource": { "type": "string" },
+        "housingType": { "type": "string" },
+        "gpsLat": { "type": "number" },
+        "gpsLng": { "type": "number" },
+        "photoUrl": { "type": "string" },
+        "notes": { "type": "string" },
+        "nonAgriTax": { "type": "string" }
+      },
+      "required": ["id", "ownerName", "address", "wardId"]
+    },
+    "Resident": {
+      "title": "Resident",
+      "description": "Sơ đồ nhân khẩu chi tiết",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fullName": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "gender": { "type": "string" },
+        "relationToOwner": { "type": "string" },
+        "nationalId": { "type": "string" },
+        "passport": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "status": { "type": "string" },
+        "ethnicity": { "type": "string" },
+        "religion": { "type": "string" },
+        "nationality": { "type": "string" },
+        "education": { "type": "string" },
+        "occupation": { "type": "string" },
+        "workplace": { "type": "string" },
+        "householdId": { "type": "string" },
+        "wardId": { "type": "string" },
+        "permanentAddress": { "type": "string" },
+        "temporaryAddress": { "type": "string" },
+        "insuranceId": { "type": "string" },
+        "isElderly": { "type": "boolean" },
+        "isDisabled": { "type": "boolean" },
+        "isPregnant": { "type": "boolean" },
+        "isOrphan": { "type": "boolean" },
+        "isStudent": { "type": "boolean" },
+        "studentType": { "type": "string" },
+        "isEmployed": { "type": "boolean" },
+        "laborSector": { "type": "string" },
+        "isExportLabor": { "type": "boolean" },
+        "subsidyType": { "type": "string" },
+        "subsidyAmount": { "type": "number" },
+        "subsidyStartDate": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "fullName", "birthDate", "gender", "relationToOwner", "householdId"]
+    },
+    "DemographicsChange": {
+      "title": "DemographicsChange",
+      "description": "Sơ đồ ghi nhận biến động nhân khẩu",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "residentId": { "type": "string" },
+        "residentName": { "type": "string" },
+        "type": { "type": "string" },
+        "date": { "type": "string" },
+        "details": { "type": "string" },
+        "recordedBy": { "type": "string" }
+      },
+      "required": ["id", "residentId", "residentName", "type", "date", "recordedBy"]
+    },
+    "BusinessHousehold": {
+      "title": "BusinessHousehold",
+      "description": "Sơ đồ hộ kinh doanh cá thể",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "sector": { "type": "string" },
+        "taxCode": { "type": "string" },
+        "licenseNumber": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "name", "ownerName", "ownerId", "address"]
+    },
+    "RuralCriteria": {
+      "title": "RuralCriteria",
+      "description": "Sơ đồ tiêu chí văn minh đô thị",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "status": { "type": "string" },
+        "value": { "type": "string" },
+        "targetValue": { "type": "string" },
+        "category": { "type": "string" },
+        "lastUpdated": { "type": "string" }
+      },
+      "required": ["id", "name", "status", "category"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Sơ đồ nhật ký hoạt động hệ thống",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userRole": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "ipAddress": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "userName", "userRole", "action"]
+    },
+    "AllowedEmail": {
+      "title": "AllowedEmail",
+      "description": "Sơ đồ phân quyền địa chỉ email",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "assignedBy": { "type": "string" },
+        "assignedAt": { "type": "string" }
+      },
+      "required": ["id", "email", "role", "assignedBy", "assignedAt"]
+    },
+    "PendingRegistration": {
+      "title": "PendingRegistration",
+      "description": "Sơ đồ yêu cầu đăng ký tài khoản đang chờ phê duyệt",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "fullName": { "type": "string" },
+        "phone": { "type": "string" },
+        "requestedRole": { "type": "string" },
+        "reason": { "type": "string" },
+        "requestedAt": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "email", "fullName", "phone", "requestedRole", "requestedAt", "status"]
+    },
+    "QuarterDocument": {
+      "title": "QuarterDocument",
+      "description": "Sơ đồ lưu trữ tài liệu khu phố",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "docNumber": { "type": "string" },
+        "issueDate": { "type": "string" },
+        "issuer": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "fileSize": { "type": "string" },
+        "fileType": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "issueDate", "issuer", "category"]
+    },
+    "DismissedEmail": {
+      "title": "DismissedEmail",
+      "description": "Sơ đồ các email đã được bỏ qua khỏi lịch sử cảnh báo",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" }
+      },
+      "required": ["id", "email"]
+    }
+  },
+  "firestore": {
+    "households": {
+      "schema": "Household",
+      "description": "Danh sách hộ gia đình"
+    },
+    "residents": {
+      "schema": "Resident",
+      "description": "Danh sách nhân khẩu"
+    },
+    "changes": {
+      "schema": "DemographicsChange",
+      "description": "Nhật ký biến động nhân khẩu"
+    },
+    "businesses": {
+      "schema": "BusinessHousehold",
+      "description": "Danh sách hộ kinh doanh"
+    },
+    "criteria": {
+      "schema": "RuralCriteria",
+      "description": "Hệ thống tiêu chí đánh giá đô thị văn minh"
+    },
+    "logs": {
+      "schema": "AuditLog",
+      "description": "Lịch sử thao tác hệ thống"
+    },
+    "allowedEmails": {
+      "schema": "AllowedEmail",
+      "description": "Danh sách địa chỉ email được cấp quyền đăng nhập"
+    },
+    "pendingRegistrations": {
+      "schema": "PendingRegistration",
+      "description": "Danh sách các yêu cầu đăng ký đang chờ duyệt"
+    },
+    "documents": {
+      "schema": "QuarterDocument",
+      "description": "Danh sách tài liệu lưu trữ của khu phố"
+    },
+    "dismissedEmails": {
+      "schema": "DismissedEmail",
+      "description": "Danh sách các email đã được bỏ qua cảnh báo bảo mật"
+    }
+  }
+}
