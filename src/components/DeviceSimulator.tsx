@@ -19,9 +19,10 @@ export default function DeviceSimulator({ children }: DeviceSimulatorProps) {
   useEffect(() => {
     const checkDevice = () => {
       const ua = navigator.userAgent.toLowerCase();
-      const isMobileUA = /iphone|ipad|ipod|android|blackberry|iemobile|opera mini/i.test(ua);
-      const isSmallScreen = window.innerWidth < 1024; // Breakpoint for mobile/tablet optimized dashboard layout
-      setIsDetectedMobile(isMobileUA || isSmallScreen);
+      // When 'Trang web dành cho máy tính' (Desktop site) is enabled in Chrome, mobile token is omitted or screen width >= 768px
+      const hasMobileKeyword = /mobile/i.test(ua);
+      const isMobileScreen = window.innerWidth < 768;
+      setIsDetectedMobile(hasMobileKeyword && isMobileScreen);
       setIsIos(/iphone|ipad|ipod/i.test(ua));
     };
 
@@ -90,7 +91,7 @@ export default function DeviceSimulator({ children }: DeviceSimulatorProps) {
           </div>
         </div>
 
-        {/* Zoom Control Panel in the pill style - highly responsive */}
+        {/* Zoom Control Panel in the pill style */}
         <div className="flex items-center justify-between sm:justify-start bg-slate-950/80 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border border-slate-800 shadow-inner w-full md:w-auto max-w-sm md:max-w-none">
           <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1 mr-2 sm:mr-3 select-none shrink-0">
             <ZoomIn className="w-3.5 h-3.5 text-emerald-400" />
@@ -131,7 +132,7 @@ export default function DeviceSimulator({ children }: DeviceSimulatorProps) {
         </div>
       </header>
 
-      {/* Main Container - Responsive layout adapting to detected device */}
+      {/* Main Container */}
       <main className="flex-1 flex justify-center items-stretch bg-slate-950 overflow-hidden relative">
         <div 
           className="bg-slate-100 text-slate-900 overflow-hidden flex flex-col absolute top-0 left-0"

@@ -9,13 +9,15 @@ import {
   TrendingUp, Activity, Briefcase, GraduationCap, Heart, Printer, Download, Sparkles,
   Search, Filter, Trash2, Table, LayoutGrid, Upload, Database, RefreshCw, CheckCircle, FileJson
 } from "lucide-react";
-import { Household, Resident, BusinessHousehold, WasteCollectionStatus, WaterSource, UserRole } from "../types";
+import { Household, Resident, BusinessHousehold, WasteCollectionStatus, WaterSource, UserRole, DemographicsChange } from "../types";
+import ResidentStatusBadge from "./ResidentStatusBadge";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 
 interface DashboardViewProps {
   households: Household[];
   residents: Resident[];
   businesses: BusinessHousehold[];
+  changes?: DemographicsChange[];
   onExport: (type: "xlsx" | "docx" | "pdf", entity: string, passedHeaders?: string[], passedRows?: any[][]) => void;
   isMobile: boolean;
   userRole?: UserRole;
@@ -30,6 +32,7 @@ export default function DashboardView({
   households, 
   residents, 
   businesses, 
+  changes = [],
   onExport, 
   isMobile, 
   userRole,
@@ -166,13 +169,14 @@ export default function DashboardView({
 
   const handleExportFiltered = (format: "xlsx" | "pdf") => {
     const headers = [
-      "STT", "Họ tên", "Số CCCD", "Ngày sinh", "Tuổi", "Giới tính", 
+      "STT", "Họ tên", "Số CCCD", "Định Danh VNeID", "Ngày sinh", "Tuổi", "Giới tính", 
       "Quan hệ", "Học vị", "Nghề nghiệp", "Số điện thoại", "Tổ dân phố", "Địa chỉ thường trú"
     ];
     const rows = filteredDetailedResidents.map((r, idx) => [
       idx + 1,
       r.fullName,
       r.id,
+      r.vneidStatus || "Chưa đăng ký",
       r.birthDate,
       getAge(r.birthDate),
       r.gender,
@@ -719,7 +723,10 @@ export default function DashboardView({
                   return (
                     <tr key={r.id} className="hover:bg-slate-50/40 transition-colors">
                       <td className="py-3 px-3">
-                        <div className="font-semibold text-slate-800">{r.fullName}</div>
+                        <div className="font-semibold text-slate-800 flex items-center gap-1.5 flex-wrap">
+                          <span>{r.fullName}</span>
+                          <ResidentStatusBadge resident={r} changes={changes} />
+                        </div>
                         <div className="text-[10px] text-slate-400 font-medium">Quan hệ: {r.relationToOwner}</div>
                       </td>
                       <td className="py-3 px-3 text-center">
@@ -783,7 +790,10 @@ export default function DashboardView({
                     {/* Header */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <h5 className="font-bold text-slate-850 text-xs sm:text-sm truncate">{r.fullName}</h5>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h5 className="font-bold text-slate-850 text-xs sm:text-sm">{r.fullName}</h5>
+                          <ResidentStatusBadge resident={r} changes={changes} />
+                        </div>
                         <p className="text-[10px] text-slate-400 font-medium mt-0.5">Quan hệ: {r.relationToOwner}</p>
                       </div>
                       <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold shrink-0 ${

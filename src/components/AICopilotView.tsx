@@ -45,10 +45,25 @@ export default function AICopilotView({ isMobile }: AICopilotViewProps) {
   const fetchAIAudits = async () => {
     setLoadingAudits(true);
     try {
+      const safeJson = async (p: Promise<Response>) => {
+        try {
+          const res = await p;
+          if (!res.ok) return {};
+          const ct = res.headers.get("content-type");
+          if (ct && ct.includes("application/json")) {
+            return await res.json();
+          }
+          const text = await res.text();
+          return JSON.parse(text);
+        } catch {
+          return {};
+        }
+      };
+
       const [dupRes, anoRes, foreRes] = await Promise.all([
-        fetch("/api/ai/duplicates").then(r => r.json()),
-        fetch("/api/ai/anomalies").then(r => r.json()),
-        fetch("/api/ai/forecast").then(r => r.json())
+        safeJson(fetch("/api/ai/duplicates")),
+        safeJson(fetch("/api/ai/anomalies")),
+        safeJson(fetch("/api/ai/forecast"))
       ]);
 
       setDuplicates(dupRes.duplicates || []);

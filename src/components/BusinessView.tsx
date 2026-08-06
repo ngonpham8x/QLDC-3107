@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from "react";
-import { BusinessHousehold, User, UserRole, Resident, Household, HouseholdStatus, WaterSource, WasteCollectionStatus } from "../types";
+import { BusinessHousehold, User, UserRole, Resident, Household, HouseholdStatus, WaterSource, WasteCollectionStatus, canUserPerformAction } from "../types";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 import { 
   Briefcase as BusinessIcon, Search as SearchIcon, Plus as PlusIcon, 
@@ -201,7 +201,7 @@ export default function BusinessView({
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          {onExport && (
+          {onExport && canUserPerformAction(currentUser, "export") && (
             <>
               <button
                 onClick={() => handleExport("xlsx")}
@@ -222,7 +222,7 @@ export default function BusinessView({
             </>
           )}
 
-          {true && (
+          {canUserPerformAction(currentUser, "add") && (
             <button
               onClick={openAddForm}
               className="flex items-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 px-4 py-2.5 rounded-xl text-xs font-semibold shadow-md transition-colors cursor-pointer"
@@ -291,7 +291,7 @@ export default function BusinessView({
                   Chi tiết
                 </button>
 
-                {(currentUser?.role !== UserRole.COLLABORATOR || !existingEntityIds?.has(b.id)) && (
+                {canUserPerformAction(currentUser, "edit") && (
                   <button
                     onClick={() => openEditForm(b)}
                     className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all cursor-pointer"
@@ -300,7 +300,7 @@ export default function BusinessView({
                     <EditIcon className="w-3.5 h-3.5" />
                   </button>
                 )}
-                {(currentUser?.role !== UserRole.COLLABORATOR || !existingEntityIds?.has(b.id)) && (
+                {canUserPerformAction(currentUser, "delete") && (
                   <button
                     onClick={() => {
                       setBusinessToDelete({ id: b.id, name: b.name });

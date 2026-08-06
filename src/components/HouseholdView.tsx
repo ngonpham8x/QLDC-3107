@@ -10,11 +10,13 @@ import {
   Maximize2, Minimize2, QrCode, History as HistoryIcon, ZoomIn, CheckCircle2, Save, Clock, User as UserIcon, RefreshCw,
   Phone, Calendar
 } from "lucide-react";
-import { Household, HouseholdStatus, HousingType, User, UserRole, Resident, WaterSource, WasteCollectionStatus, Gender, ResidentStatus, EducationLevel, LaborSector } from "../types";
+import { Household, HouseholdStatus, HousingType, User, UserRole, Resident, WaterSource, WasteCollectionStatus, Gender, ResidentStatus, EducationLevel, LaborSector, VNeIDStatus, DemographicsChange, canUserPerformAction } from "../types";
+import ResidentStatusBadge from "./ResidentStatusBadge";
 import { CameraCaptureModal } from "./CameraCaptureModal";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 import { CccdQrScannerModal } from "./CccdQrScannerModal";
 import MapPickerModal from "./MapPickerModal";
+import { getCurrentGpsLocation } from "../utils/geolocation";
 import GoogleGISMap from "./GoogleGISMap";
 import Zoom from "react-medium-image-zoom";
 import "react-medium-image-zoom/dist/styles.css";
@@ -126,6 +128,7 @@ export function getHouseholdGenerationType(household: Household, allResidents: R
 interface HouseholdViewProps {
   households: Household[];
   residents: Resident[];
+  changes?: DemographicsChange[];
   currentUser: User | null;
   onAddHousehold: (household: Household) => void;
   onUpdateHousehold: (household: Household, originalId?: string) => void;
@@ -142,7 +145,7 @@ interface HouseholdViewProps {
 }
 
 export default function HouseholdView({ 
-  households, residents, currentUser, onAddHousehold, onUpdateHousehold, onDeleteHousehold, onExport, isMobile = false,
+  households, residents, changes = [], currentUser, onAddHousehold, onUpdateHousehold, onDeleteHousehold, onExport, isMobile = false,
   onSync, offlineQueueCount = 0, isSyncing = false, isOnline = true, onAddResident, onUpdateResident, existingEntityIds
 }: HouseholdViewProps) {
   
@@ -156,6 +159,7 @@ export default function HouseholdView({
   const [nonAgriTaxFilter, setNonAgriTaxFilter] = useState<string>("ALL");
   const [generationFilter, setGenerationFilter] = useState<string>("ALL");
   const [wardFilter, setWardFilter] = useState<string>("ALL");
+  const [vneidFilter, setVneidFilter] = useState<string>("ALL");
   const [isClassificationVisible, setIsClassificationVisible] = useState(true);
   const [showDetailedFilters, setShowDetailedFilters] = useState(true);
   const [showHouseholdHistory, setShowHouseholdHistory] = useState(false);
@@ -203,6 +207,7 @@ export default function HouseholdView({
   const [formAddress, setFormAddress] = useState("");
   const [formWard, setFormWard] = useState("Tổ 5");
   const [formStatus, setFormStatus] = useState<HouseholdStatus>(HouseholdStatus.AVERAGE);
+  const [formVneidStatus, setFormVneidStatus] = useState<VNeIDStatus>(VNeIDStatus.LEVEL_2);
   const [formHousingType, setFormHousingType] = useState<HousingType>(HousingType.NO);
   const [formNonAgriTax, setFormNonAgriTax] = useState<string>("Chưa nộp");
   const [formCultural, setFormCultural] = useState(false);
@@ -252,7 +257,12 @@ export default function HouseholdView({
 
   React.useEffect(() => {
     fetch("/api/logs")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) return [];
+        const ct = r.headers.get("content-type");
+        if (ct && ct.includes("application/json")) return r.json();
+        return [];
+      })
       .then((data) => {
         if (Array.isArray(data)) {
           setAuditLogs(data);
@@ -393,26 +403,20 @@ export default function HouseholdView({
   };
 
   const handleGetGps = () => {
-    if (navigator.geolocation) {
-      setSimulatingGps(true);
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setFormGpsLat(position.coords.latitude);
-          setFormGpsLng(position.coords.longitude);
-          setSimulatingGps(false);
-        },
-        (error) => {
-          console.error(error);
-          setFormGpsLat(12.5512);
-          setFormGpsLng(109.1824);
-          setSimulatingGps(false);
-        },
-        { timeout: 10000 }
-      );
-    } else {
-      setFormGpsLat(12.5512);
-      setFormGpsLng(109.1824);
-    }
+    setSimulatingGps(true);
+    getCurrentGpsLocation(
+      (coords) => {
+        setFormGpsLat(coords.lat);
+        setFormGpsLng(coords.lng);
+        setSimulatingGps(false);
+      },
+      (errorMsg) => {
+        alert(errorMsg);
+        setFormGpsLat(11.367716);
+        setFormGpsLng(106.136728);
+        setSimulatingGps(false);
+      }
+    );
   };
   
   // Danh sách các Tổ dân phố khả dụng
@@ -475,8 +479,9 @@ export default function HouseholdView({
       wardFilter === "ALL" ||
       (h.wardId && h.wardId === wardFilter) ||
       (h.address && h.address.toLowerCase().includes(wardFilter.toLowerCase()));
+    const matchesVneid = vneidFilter === "ALL" || (h.vneidStatus || VNeIDStatus.NOT_REGISTERED) === vneidFilter;
 
-    return matchesSearch && matchesStatus && matchesWasteFee && matchesWaterSource && matchesAgri && matchesNonAgriTax && matchesGeneration && matchesWard;
+    return matchesSearch && matchesStatus && matchesWasteFee && matchesWaterSource && matchesAgri && matchesNonAgriTax && matchesGeneration && matchesWard && matchesVneid;
   });
 
   const handleCccdScanSuccess = (data: {
@@ -520,6 +525,7 @@ export default function HouseholdView({
     setFormAddress("");
     setFormWard("Tổ 5");
     setFormStatus(HouseholdStatus.AVERAGE);
+    setFormVneidStatus(VNeIDStatus.LEVEL_2);
     setFormHousingType(HousingType.NO);
     setFormNonAgriTax("Chưa nộp");
     setFormCultural(true);
@@ -564,6 +570,7 @@ export default function HouseholdView({
     setFormAddress(h.address);
     setFormWard(h.wardId);
     setFormStatus(h.status);
+    setFormVneidStatus((h.vneidStatus as VNeIDStatus) || VNeIDStatus.NOT_REGISTERED);
     setFormHousingType(h.housingType);
     setFormNonAgriTax(h.nonAgriTax || "Chưa nộp");
     setFormCultural(h.isCulturalFamily);
@@ -623,22 +630,16 @@ export default function HouseholdView({
 
   const handleUseCurrentLocation = () => {
     setSimulatingGps(true);
-    if (!navigator.geolocation) {
-      setSimulatingGps(false);
-      alert("Trình duyệt không hỗ trợ định vị. Hãy chọn vị trí trên Google Maps.");
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setFormGpsLat(Number(position.coords.latitude.toFixed(6)));
-        setFormGpsLng(Number(position.coords.longitude.toFixed(6)));
+    getCurrentGpsLocation(
+      (coords) => {
+        setFormGpsLat(coords.lat);
+        setFormGpsLng(coords.lng);
         setSimulatingGps(false);
       },
-      () => {
+      (errorMsg) => {
         setSimulatingGps(false);
-        alert("Không lấy được vị trí hiện tại. Hãy cho phép quyền vị trí hoặc chọn trực tiếp trên Google Maps.");
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        alert(errorMsg);
+      }
     );
   };
 
@@ -733,6 +734,7 @@ export default function HouseholdView({
       quarterId: undefined,
       createdAt: new Date().toISOString().split("T")[0],
       status: formStatus,
+      vneidStatus: formVneidStatus,
       isCulturalFamily: formCultural,
       isPolicyFamily: formPolicy,
       isMeritoriousFamily: formMeritorious,
@@ -758,6 +760,7 @@ export default function HouseholdView({
       nationalId: finalOwnerId,
       phone: ownerPhone,
       status: ownerResidentStatus,
+      vneidStatus: formVneidStatus,
       ethnicity: ownerEthnicity,
       religion: ownerReligion,
       nationality: "Việt Nam",
@@ -820,7 +823,7 @@ export default function HouseholdView({
     const customKeysArray = Array.from(customKeys);
 
     const headers = [
-      "STT", "Mã Hộ Gia Đình", "Họ Tên Chủ Hộ", "CCCD Chủ Hộ", "CMND cũ Chủ Hộ", "SĐT Liên Hệ", "Tuổi Chủ Hộ", "Số Nhân Khẩu", 
+      "STT", "Mã Hộ Gia Đình", "Họ Tên Chủ Hộ", "CCCD Chủ Hộ", "Định Danh VNeID", "CMND cũ Chủ Hộ", "SĐT Liên Hệ", "Tuổi Chủ Hộ", "Số Nhân Khẩu", 
       "Địa Chỉ Chi Tiết", "Tổ dân phố", "Tọa độ GPS GIS", "Phân Loại Thế Hệ", "Trạng Thái Hộ", "Nước Sạch", "Thu Gom Rác", "Loại Hộ", "Ghi Chú",
       ...customKeysArray
     ];
@@ -834,11 +837,13 @@ export default function HouseholdView({
       const customValues = customKeysArray.map(k => (h.customFields?.[k] || ""));
       const genType = getHouseholdGenerationType(h, residents);
       const genLabel = getGenerationLabel(genType);
+      const vneidStatusVal = h.vneidStatus || ownerResident?.vneidStatus || "Chưa đăng ký";
       return [
         idx + 1,
         h.id,
         h.ownerName,
         h.ownerId || ownerResident?.id || "",
+        vneidStatusVal,
         ownerOldCmnd,
         ownerPhone,
         ownerAge !== "N/A" ? `${ownerAge} tuổi` : "N/A",
@@ -907,7 +912,7 @@ export default function HouseholdView({
 
         {/* Action Buttons (Export & Create) */}
         <div className="flex flex-wrap items-center gap-2">
-          {onExport && (
+          {onExport && canUserPerformAction(currentUser, "export") && (
             <>
               <button
                 onClick={() => handleExport("xlsx")}
@@ -928,13 +933,15 @@ export default function HouseholdView({
             </>
           )}
 
-          <button
-            onClick={openAddForm}
-            className="flex items-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 px-4 py-2 rounded-xl text-xs font-semibold shadow-md cursor-pointer transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Tạo hộ gia đình mới
-          </button>
+          {canUserPerformAction(currentUser, "add") && (
+            <button
+              onClick={openAddForm}
+              className="flex items-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 px-4 py-2 rounded-xl text-xs font-semibold shadow-md cursor-pointer transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Tạo hộ gia đình mới
+            </button>
+          )}
         </div>
       </div>
 
@@ -1095,6 +1102,21 @@ export default function HouseholdView({
                 <option value="ALL">-- Tất cả Hộ nông nghiệp --</option>
                 <option value="Có">Có</option>
                 <option value="Không">Không</option>
+              </select>
+            </div>
+
+            {/* Định danh VNeID */}
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Định Danh VNeID:</label>
+              <select
+                value={vneidFilter}
+                onChange={(e) => setVneidFilter(e.target.value)}
+                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-semibold focus:bg-white focus:border-emerald-500 cursor-pointer"
+              >
+                <option value="ALL">-- Tất cả định danh VNeID --</option>
+                <option value={VNeIDStatus.LEVEL_2}>🪪 Mức 2</option>
+                <option value={VNeIDStatus.LEVEL_1}>🪪 Mức 1</option>
+                <option value={VNeIDStatus.NOT_REGISTERED}>⚠️ Chưa đăng ký</option>
               </select>
             </div>
 
@@ -1282,7 +1304,10 @@ export default function HouseholdView({
 
                     {/* Owner Info */}
                     <div>
-                      <h4 className="text-lg font-bold text-slate-900 leading-tight">{household.ownerName}</h4>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-lg font-bold text-slate-900 leading-tight">{household.ownerName}</h4>
+                        {ownerRes && <ResidentStatusBadge resident={ownerRes} changes={changes} />}
+                      </div>
                       <p className="text-xs text-slate-400 font-medium mt-0.5">Chủ hộ gia đình</p>
                       
                       {/* Thêm thông tin SĐT và Tuổi của Chủ Hộ theo hình đính kèm */}
@@ -1315,6 +1340,17 @@ export default function HouseholdView({
 
                     {/* Badges / Tags list */}
                     <div className="flex flex-wrap gap-1.5 pt-2">
+                      {/* Mức VNeID chủ hộ */}
+                      <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border ${
+                        (household.vneidStatus || "Chưa đăng ký") === VNeIDStatus.LEVEL_2
+                          ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                          : (household.vneidStatus || "Chưa đăng ký") === VNeIDStatus.LEVEL_1
+                          ? "bg-blue-100 text-blue-800 border-blue-300"
+                          : "bg-amber-100 text-amber-800 border-amber-300"
+                      }`}>
+                        🪪 VNeID: {household.vneidStatus || "Chưa đăng ký"}
+                      </span>
+
                       {/* Thế hệ */}
                       <span className="bg-sky-50 text-blue-700 border border-sky-200/90 text-[11px] font-bold px-2.5 py-1 rounded-lg">
                         {getGenerationLabel(getHouseholdGenerationType(household, residents))}
@@ -1386,23 +1422,27 @@ export default function HouseholdView({
                     </button>
 
                     <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => openEditForm(household)}
-                        className="w-9 h-9 flex items-center justify-center bg-white hover:bg-blue-50 border border-slate-200/90 hover:border-blue-300 text-blue-600 rounded-xl shadow-2xs transition cursor-pointer shrink-0"
-                        title="Chỉnh sửa hộ gia đình"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setHouseholdToDelete({ id: household.id, ownerName: household.ownerName });
-                          setDeleteModalOpen(true);
-                        }}
-                        className="w-9 h-9 flex items-center justify-center bg-white hover:bg-rose-50 border border-slate-200/90 hover:border-rose-300 text-rose-600 rounded-xl shadow-2xs transition cursor-pointer shrink-0"
-                        title="Xóa hộ gia đình"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {canUserPerformAction(currentUser, "edit") && (
+                        <button
+                          onClick={() => openEditForm(household)}
+                          className="w-9 h-9 flex items-center justify-center bg-white hover:bg-blue-50 border border-slate-200/90 hover:border-blue-300 text-blue-600 rounded-xl shadow-2xs transition cursor-pointer shrink-0"
+                          title="Chỉnh sửa hộ gia đình"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                      )}
+                      {canUserPerformAction(currentUser, "delete") && (
+                        <button
+                          onClick={() => {
+                            setHouseholdToDelete({ id: household.id, ownerName: household.ownerName });
+                            setDeleteModalOpen(true);
+                          }}
+                          className="w-9 h-9 flex items-center justify-center bg-white hover:bg-rose-50 border border-slate-200/90 hover:border-rose-300 text-rose-600 rounded-xl shadow-2xs transition cursor-pointer shrink-0"
+                          title="Xóa hộ gia đình"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1563,6 +1603,18 @@ export default function HouseholdView({
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
+                      <strong className="text-slate-900 shrink-0">Định danh VNeID chủ hộ:</strong>
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                        (selectedHousehold.vneidStatus || "Chưa đăng ký") === VNeIDStatus.LEVEL_2
+                          ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                          : (selectedHousehold.vneidStatus || "Chưa đăng ký") === VNeIDStatus.LEVEL_1
+                          ? "bg-blue-100 text-blue-800 border border-blue-200"
+                          : "bg-amber-100 text-amber-800 border border-amber-200"
+                      }`}>
+                        🪪 {selectedHousehold.vneidStatus || "Chưa đăng ký"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <strong className="text-slate-900 shrink-0">Thuế đất phi nông nghiệp (PNN):</strong>
                       <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-900 border border-blue-200">
                         {selectedHousehold.isNonAgriTaxPaid ? "Đã nộp" : "Miễn nộp"}
@@ -1626,8 +1678,9 @@ export default function HouseholdView({
                                 className="bg-white border border-slate-200/90 hover:border-slate-300 rounded-2xl p-4 shadow-2xs space-y-2 transition-colors"
                               >
                                 <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
                                     <span className="font-bold text-sm text-slate-900">{m.fullName}</span>
+                                    <ResidentStatusBadge resident={m} changes={changes} />
                                     <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${m.relationToOwner === "Chủ hộ" ? "bg-emerald-100 text-emerald-800 border border-emerald-200" : "bg-slate-100 text-slate-700 border border-slate-200"}`}>
                                       {m.relationToOwner || "Thành viên"}
                                     </span>
@@ -1961,6 +2014,19 @@ export default function HouseholdView({
                       <option value={ResidentStatus.PERMANENT}>Thường trú</option>
                       <option value={ResidentStatus.TEMPORARY_STAY}>Tạm trú</option>
                       <option value={ResidentStatus.TEMPORARY_ABSENT}>Tạm vắng</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Định Danh VNeID *</label>
+                    <select
+                      value={formVneidStatus}
+                      onChange={(e) => setFormVneidStatus(e.target.value as VNeIDStatus)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none text-xs bg-white font-medium"
+                    >
+                      <option value={VNeIDStatus.LEVEL_2}>🪪 Mức 2</option>
+                      <option value={VNeIDStatus.LEVEL_1}>🪪 Mức 1</option>
+                      <option value={VNeIDStatus.NOT_REGISTERED}>⚠️ Chưa đăng ký</option>
                     </select>
                   </div>
 

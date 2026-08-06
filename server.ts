@@ -22,6 +22,7 @@ import {
   HousingType,
   WaterSource,
   WasteCollectionStatus,
+  VNeIDStatus,
   DemographicsChangeType,
   UserRole,
   User,
@@ -474,6 +475,13 @@ async function loadDatabase() {
           const hh = db.households?.find(h => h.id === r.householdId);
           const hhAddress = hh ? hh.address : "Số 12, Phường sở tại";
           
+          if (hh && hh.gpsLat !== undefined && hh.gpsLng !== undefined) {
+            if (r.gpsLat !== hh.gpsLat || r.gpsLng !== hh.gpsLng) {
+              r.gpsLat = hh.gpsLat;
+              r.gpsLng = hh.gpsLng;
+              modified = true;
+            }
+          }
           if (r.status === "Tạm trú") {
             const expectedPerm = r.permanentAddress && r.permanentAddress !== hhAddress ? r.permanentAddress : "Số 250, Đường Hùng Vương";
             const { cleanAddress: cleanExpectedPerm, extractedTổ: ext1 } = extractAndTrimTổ(expectedPerm);
@@ -550,8 +558,10 @@ async function loadDatabase() {
     saveDatabase();
   }
 
-  // Synchronize with Firestore Cloud Database
-  await loadFromFirestore();
+  // Synchronize with Firestore Cloud Database asynchronously in background
+  loadFromFirestore().catch(err => {
+    console.error("Background Firestore load error:", err);
+  });
 }
 
 async function loadFromFirestore() {
@@ -560,22 +570,26 @@ async function loadFromFirestore() {
     return;
   }
   try {
-    console.log("Loading database from Firestore Cloud...");
+    console.log("Loading database from Firestore Cloud asynchronously...");
     const collections = ["households", "residents", "changes", "businesses", "criteria", "logs", "allowedEmails", "pendingRegistrations", "documents", "dismissedEmails"];
     
-    // Helper to load a collection
+    // Helper to load a collection with 5s timeout safety
     const loadColl = async (name: string) => {
       try {
-        const snap = await getDocs(collection(firestoreDb, name));
+        const fetchPromise = getDocs(collection(firestoreDb, name));
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error(`Timeout fetching ${name}`)), 5000)
+        );
+        const snap: any = await Promise.race([fetchPromise, timeoutPromise]);
         const list: any[] = [];
-        snap.forEach(docSnap => {
+        snap.forEach((docSnap: any) => {
           list.push(docSnap.data());
         });
         console.log(`Firestore successfully loaded collection: ${name} (${list.length} items)`);
         return list;
       } catch (err: any) {
-        console.error(`Error loading collection '${name}' from Firestore:`, err);
-        throw err;
+        console.error(`Error loading collection '${name}' from Firestore:`, err?.message || err);
+        return [];
       }
     };
 
@@ -1136,6 +1150,21 @@ app.post("/api/auth/login", (req, res) => {
   return res.status(410).json({ error: "Đăng nhập mô phỏng đã bị tắt. Vui lòng đăng nhập Google và xác thực 2FA." });
 });
 
+function normalizeUserRole(inputRole: any): UserRole | null {
+  if (!inputRole) return null;
+  const s = String(inputRole).trim().toUpperCase();
+  if (s === "SUPER_ADMIN" || s === "QUẢN TRỊ VIÊN" || s === UserRole.SUPER_ADMIN.toUpperCase()) {
+    return UserRole.SUPER_ADMIN;
+  }
+  if (s === "WARD_LEADER" || s === "TRƯỞNG KHU PHỐ" || s === UserRole.WARD_LEADER.toUpperCase()) {
+    return UserRole.WARD_LEADER;
+  }
+  if (s === "COLLABORATOR" || s === "CTV" || s === "CỘNG TÁC VIÊN" || s === UserRole.COLLABORATOR.toUpperCase()) {
+    return UserRole.COLLABORATOR;
+  }
+  return null;
+}
+
 // GET session and authorization check for real-time revoke/update
 app.get("/api/auth/session-check", (req, res) => {
   const { email, requestedRole } = req.query;
@@ -1160,25 +1189,39 @@ app.get("/api/auth/session-check", (req, res) => {
     return res.json({ allowed: false });
   }
 
-  let finalRole = isSuperAdmin ? UserRole.SUPER_ADMIN : (allowedUser ? allowedUser.role : UserRole.COLLABORATOR);
+  const maxRole = isSuperAdmin 
+    ? UserRole.SUPER_ADMIN 
+    : (allowedUser ? allowedUser.role : UserRole.COLLABORATOR);
 
-  if (isSuperAdmin) {
-    finalRole = UserRole.SUPER_ADMIN;
-  } else {
-    const reqRoleStr = requestedRole ? String(requestedRole).trim() : "";
-    if (reqRoleStr && [UserRole.SUPER_ADMIN, UserRole.WARD_LEADER, UserRole.COLLABORATOR].includes(reqRoleStr as any)) {
-      if (reqRoleStr === UserRole.SUPER_ADMIN && allowedUser?.role !== UserRole.SUPER_ADMIN) {
-        finalRole = allowedUser ? allowedUser.role : UserRole.COLLABORATOR;
-      } else {
-        finalRole = reqRoleStr as UserRole;
-      }
+  const roleHierarchy: Record<string, number> = {
+    [UserRole.SUPER_ADMIN]: 3,
+    [UserRole.WARD_LEADER]: 2,
+    [UserRole.COLLABORATOR]: 1,
+  };
+
+  const parsedRequested = normalizeUserRole(requestedRole);
+
+  let finalRole: UserRole = maxRole;
+  if (parsedRequested) {
+    if ((roleHierarchy[parsedRequested] || 0) <= (roleHierarchy[maxRole] || 0)) {
+      finalRole = parsedRequested;
     }
+  }
+
+  let effectivePermissions = allowedUser?.permissions;
+  if (finalRole === UserRole.SUPER_ADMIN) {
+    effectivePermissions = { canAdd: true, canEdit: true, canDelete: true, canExport: true, canApprove: true };
+  } else if (finalRole === UserRole.WARD_LEADER) {
+    effectivePermissions = effectivePermissions || { canAdd: true, canEdit: true, canDelete: true, canExport: true, canApprove: true };
+  } else if (finalRole === UserRole.COLLABORATOR) {
+    effectivePermissions = effectivePermissions || { canAdd: true, canEdit: true, canDelete: false, canExport: true, canApprove: false };
   }
 
   return res.json({ 
     allowed: true, 
     role: finalRole,
-    fullName: allowedUser?.fullName || undefined
+    fullName: allowedUser?.fullName || undefined,
+    permissions: effectivePermissions
   });
 });
 
@@ -1553,7 +1596,16 @@ app.post("/api/data/generate-mock", (req, res) => {
         laborSector,
         subsidyType,
         subsidyAmount,
-        subsidyStartDate
+        subsidyStartDate,
+        vneidStatus: (() => {
+          if (age < 6) {
+            return random() > 0.3 ? VNeIDStatus.NOT_REGISTERED : VNeIDStatus.LEVEL_1;
+          }
+          const rand = random();
+          if (rand > 0.35) return VNeIDStatus.LEVEL_2;
+          if (rand > 0.1) return VNeIDStatus.LEVEL_1;
+          return VNeIDStatus.NOT_REGISTERED;
+        })()
       };
 
       if (isOwner) {
@@ -1587,8 +1639,14 @@ app.post("/api/data/generate-mock", (req, res) => {
       })(),
       waterSource: random() > 0.2 ? WaterSource.TAP_WATER : WaterSource.WELL_WATER,
       housingType,
-      gpsLat: parseFloat((10.77 + random() * 0.02).toFixed(6)),
-      gpsLng: parseFloat((106.69 + random() * 0.02).toFixed(6))
+      vneidStatus: (() => {
+        const rand = random();
+        if (rand > 0.3) return VNeIDStatus.LEVEL_2;
+        if (rand > 0.08) return VNeIDStatus.LEVEL_1;
+        return VNeIDStatus.NOT_REGISTERED;
+      })(),
+      gpsLat: parseFloat((11.3450 + random() * 0.022).toFixed(6)),
+      gpsLng: parseFloat((106.1120 + random() * 0.016).toFixed(6))
     };
 
     generatedHouseholds.push(household);
@@ -2964,7 +3022,7 @@ app.get("/api/allowed-emails", (req, res) => {
 
 // POST add allowed email
 app.post("/api/allowed-emails", (req, res) => {
-  const { email, role, assignedBy } = req.body;
+  const { email, role, assignedBy, permissions } = req.body;
   if (!email || !role) {
     return res.status(400).json({ error: "Email và Vai trò là bắt buộc" });
   }
@@ -2988,7 +3046,8 @@ app.post("/api/allowed-emails", (req, res) => {
     email: lowerEmail,
     role: role as UserRole,
     assignedBy: assignedBy || "Người quản lý",
-    assignedAt: new Date().toISOString()
+    assignedAt: new Date().toISOString(),
+    permissions: permissions || (role === UserRole.COLLABORATOR ? { canAdd: true, canEdit: false, canDelete: false, canExport: false, canApprove: false } : undefined)
   };
 
   db.allowedEmails.push(newAllowed);
@@ -3020,10 +3079,10 @@ app.delete("/api/allowed-emails/:email", (req, res) => {
   }
 });
 
-// PUT update allowed email role
+// PUT update allowed email role and permissions
 app.put("/api/allowed-emails/:email", (req, res) => {
   const { email } = req.params;
-  const { role } = req.body;
+  const { role, permissions } = req.body;
   
   if (!email || !role) {
     return res.status(400).json({ error: "Email và Vai trò là bắt buộc" });
@@ -3037,6 +3096,9 @@ app.put("/api/allowed-emails/:email", (req, res) => {
   if (allowedUser) {
     const oldRole = allowedUser.role;
     allowedUser.role = role as UserRole;
+    if (permissions !== undefined) {
+      allowedUser.permissions = permissions;
+    }
     allowedUser.assignedAt = new Date().toISOString();
     saveDatabase();
     saveToFirestore("allowedEmails", allowedUser);
@@ -3246,6 +3308,9 @@ async function startServer() {
   // Load database and sync with Firestore before starting
   console.log("Initializing database and syncing with Firestore...");
   await loadDatabase();
+
+  // Explicitly serve public assets (PWA manifest, SW, icons)
+  app.use(express.static(path.join(process.cwd(), "public")));
 
   // Vite dev middleware or static serving
   if (process.env.NODE_ENV !== "production") {

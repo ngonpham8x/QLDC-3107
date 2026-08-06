@@ -57,6 +57,12 @@ export enum WasteCollectionStatus {
   CANCELLED = "Đã hủy"
 }
 
+export enum VNeIDStatus {
+  LEVEL_1 = "Mức 1",
+  LEVEL_2 = "Mức 2",
+  NOT_REGISTERED = "Chưa đăng ký"
+}
+
 export enum DemographicsChangeType {
   NEWBORN = "Sinh mới",
   MOVE_IN = "Chuyển đến",
@@ -73,6 +79,14 @@ export enum UserRole {
   COLLABORATOR = "CTV"
 }
 
+export interface CollaboratorPermissions {
+  canAdd?: boolean;      // Cho phép thêm mới dữ liệu
+  canEdit?: boolean;     // Cho phép sửa đổi dữ liệu
+  canDelete?: boolean;   // Cho phép xóa dữ liệu
+  canExport?: boolean;   // Cho phép tải xuống / xuất Excel, PDF
+  canApprove?: boolean;  // Cho phép phê duyệt biến động nhân khẩu
+}
+
 export interface User {
   id: string;
   username: string;
@@ -80,6 +94,7 @@ export interface User {
   role: UserRole;
   phone: string;
   avatarUrl?: string;
+  permissions?: CollaboratorPermissions;
 }
 
 export interface Household {
@@ -112,12 +127,14 @@ gpsUpdatedBy?: string;
 photoUrl?: string;
 notes?: string;
   nonAgriTax?: string; // Thuế PNN (Đã nộp / Chưa nộp / Miễn nộp)
+  vneidStatus?: VNeIDStatus | string; // Định danh VNeID chủ hộ (Mức 1, Mức 2, Chưa đăng ký)
   customFields?: Record<string, string>; // Các trường thông tin bổ sung tự định nghĩa
 }
 
 export interface Resident {
   id: string; // Mã định danh / CCCD
   oldCmnd?: string; // Số CMND 9 số cũ (nếu có)
+  vneidStatus?: VNeIDStatus | string; // Định danh VNeID cá nhân (Mức 1, Mức 2, Chưa đăng ký)
   fullName: string;
   birthDate: string;
   gender: Gender;
@@ -231,6 +248,7 @@ export interface AllowedEmail {
   role: UserRole;
   assignedBy: string;
   assignedAt: string;
+  permissions?: CollaboratorPermissions;
 }
 
 export interface PendingRegistration {
@@ -257,4 +275,31 @@ export interface QuarterDocument {
   fileUrl?: string;
   attachments?: { name: string; size: string; type: string; dataUrl: string }[];
   createdAt: string;
+}
+
+// Helper to evaluate granular permissions
+export function canUserPerformAction(
+  user: User | null | undefined,
+  action: "add" | "edit" | "delete" | "export" | "approve"
+): boolean {
+  if (!user) return false;
+  if (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.WARD_LEADER) return true;
+  
+  if (user.role === UserRole.COLLABORATOR) {
+    const p = user.permissions;
+    if (!p) {
+      if (action === "add") return true;
+      if (action === "edit") return true;
+      if (action === "delete") return false;
+      if (action === "export") return true;
+      if (action === "approve") return false;
+    } else {
+      if (action === "add") return p.canAdd !== false;
+      if (action === "edit") return p.canEdit !== false;
+      if (action === "delete") return p.canDelete === true;
+      if (action === "export") return p.canExport !== false;
+      if (action === "approve") return p.canApprove === true;
+    }
+  }
+  return false;
 }

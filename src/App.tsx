@@ -10,7 +10,7 @@ import {
   RefreshCw, AlertTriangle, Download, Wifi, WifiOff, Menu, ChevronLeft, ChevronRight, ChevronUp, ChevronDown,
   Eye, EyeOff, Bot, ZoomIn, ZoomOut, Sun, Moon, ArrowRight, Clock
 } from "lucide-react";
-import { Household, Resident, BusinessHousehold, RuralCriteria, DemographicsChange, DemographicsChangeType, User as UserType, UserRole, AllowedEmail } from "./types";
+import { Household, Resident, BusinessHousehold, RuralCriteria, DemographicsChange, DemographicsChangeType, User as UserType, UserRole, AllowedEmail, canUserPerformAction } from "./types";
 
 // Import components
 import XLSX from "xlsx-js-style";
@@ -31,17 +31,10 @@ import QuarterDocumentsView from "./components/QuarterDocumentsView";
 import { ExportColumnModal } from "./components/ExportColumnModal";
 import { useAuth } from "./context/AuthContext";
 import MovableChatbox from "./components/MovableChatbox";
-const officialLogo = "/logo.png";
+import officialLogoAsset from "./assets/images/logo_phuong_binh_minh_official_1782824466988.png";
+const officialLogo = officialLogoAsset || "/logo_phuong_binh_minh_official_1782824466988.png";
 
 export default function App() {
-  console.log("========== APP RENDER ==========");
-  useEffect(() => {
-  console.log("========== APP MOUNT ==========");
-
-  return () => {
-    console.log("========== APP UNMOUNT ==========");
-  };
-}, []);
   const { user, loading: authLoading, login: contextLogin, loginWithRedirect: contextLoginWithRedirect, logout: contextLogout } = useAuth();
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
 
@@ -66,7 +59,15 @@ const checkingAccessRef = useRef(false);
 
   // Login Form States
   const [loginPhone, setLoginPhone] = useState("");
-  const [loginRole, setLoginRole] = useState<UserRole>(UserRole.SUPER_ADMIN);
+  const [loginRole, setLoginRole] = useState<UserRole>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("selected_login_role");
+      if (saved && Object.values(UserRole).includes(saved as UserRole)) {
+        return saved as UserRole;
+      }
+    }
+    return UserRole.SUPER_ADMIN;
+  });
   const [loginMethod, setLoginMethod] = useState<"google" | "phone">("google");
 
   // Registration States
@@ -222,6 +223,7 @@ const checkingAccessRef = useRef(false);
           role: access.role,
           phone: user.phoneNumber || "0912345678",
           avatarUrl: user.photoURL || undefined,
+          permissions: access.permissions,
         };
 
         setCurrentUser(prev => {
@@ -231,13 +233,14 @@ const checkingAccessRef = useRef(false);
             prev.username === newUser.username &&
             prev.role === newUser.role &&
             prev.fullName === newUser.fullName &&
-            prev.phone === newUser.phone
+            prev.phone === newUser.phone &&
+            JSON.stringify(prev.permissions) === JSON.stringify(newUser.permissions)
           ) {
             console.log(">>> CURRENT USER KHÔNG ĐỔI");
             return prev;
           }
 
-          console.log(">>> SET CURRENT USER", newUser.role);
+          console.log(">>> SET CURRENT USER", newUser.role, newUser.permissions);
           return newUser;
         });
 
@@ -285,20 +288,23 @@ const checkingAccessRef = useRef(false);
       try {
         const res = await fetch(`/api/auth/session-check?email=${encodeURIComponent(currentUser.username)}&requestedRole=${encodeURIComponent(currentUser.role)}`);
         if (res.ok) {
-          const data = await res.json();
-          if (!data.allowed) {
-            // User was removed or is not allowed anymore! Kick them immediately!
-            sessionStorage.setItem("explicit_logout", "true");
-            console.log(">>> CLEAR CURRENT USER (Session revoked)");
-            setCurrentUser(null);
-            localStorage.removeItem("currentUser");
-            await contextLogout();
-            alert(`[QUYỀN TRUY CẬP BỊ HỦY] Tài khoản của bạn (${currentUser.username}) đã bị Người quản lý thu hồi quyền truy cập hệ thống. Bạn sẽ bị đăng xuất ngay lập tức.`);
-          } else if (data.role !== currentUser.role) {
-            // Role was modified! Update immediately!
-            const updatedUser = { ...currentUser, role: data.role };
-            setCurrentUser(updatedUser);
-            alert(`[CẬP NHẬT QUYỀN TRUY CẬP] Vai trò của bạn đã được thay đổi thành: ${data.role === UserRole.SUPER_ADMIN ? "Quản trị viên" : data.role === UserRole.WARD_LEADER ? "Trưởng khu phố" : "Cộng tác viên"}. Hệ thống đã cập nhật phân quyền mới.`);
+          const ct = res.headers.get("content-type");
+          if (ct && ct.includes("application/json")) {
+            const data = await res.json();
+            if (!data.allowed) {
+              // User was removed or is not allowed anymore! Kick them immediately!
+              sessionStorage.setItem("explicit_logout", "true");
+              console.log(">>> CLEAR CURRENT USER (Session revoked)");
+              setCurrentUser(null);
+              localStorage.removeItem("currentUser");
+              await contextLogout();
+              alert(`[QUYỀN TRUY CẬP BỊ HỦY] Tài khoản của bạn (${currentUser.username}) đã bị Người quản lý thu hồi quyền truy cập hệ thống. Bạn sẽ bị đăng xuất ngay lập tức.`);
+            } else if (data.role !== currentUser.role) {
+              // Role was modified! Update immediately!
+              const updatedUser = { ...currentUser, role: data.role };
+              setCurrentUser(updatedUser);
+              alert(`[CẬP NHẬT QUYỀN TRUY CẬP] Vai trò của bạn đã được thay đổi thành: ${data.role === UserRole.SUPER_ADMIN ? "Quản trị viên" : data.role === UserRole.WARD_LEADER ? "Trưởng khu phố" : "Cộng tác viên"}. Hệ thống đã cập nhật phân quyền mới.`);
+            }
           }
         }
       } catch (err) {
@@ -611,12 +617,27 @@ const checkingAccessRef = useRef(false);
   const fetchData = async () => {
     setLoading(true);
     try {
+      const safeJson = async (p: Promise<Response>) => {
+        try {
+          const res = await p;
+          if (!res.ok) return {};
+          const ct = res.headers.get("content-type");
+          if (ct && ct.includes("application/json")) {
+            return await res.json();
+          }
+          const text = await res.text();
+          return JSON.parse(text);
+        } catch {
+          return {};
+        }
+      };
+
       const [hhRes, resRes, busRes, critRes, changesRes] = await Promise.all([
-        fetch("/api/households").then(r => r.json()),
-        fetch("/api/residents").then(r => r.json()),
-        fetch("/api/businesses").then(r => r.json()),
-        fetch("/api/criteria").then(r => r.json()),
-        fetch("/api/changes").then(r => r.json()).catch(() => ({ changes: [] }))
+        safeJson(fetch("/api/households")),
+        safeJson(fetch("/api/residents")),
+        safeJson(fetch("/api/businesses")),
+        safeJson(fetch("/api/criteria")),
+        safeJson(fetch("/api/changes"))
       ]);
 
       let hh = Array.isArray(hhRes) ? hhRes : (hhRes.households || []);
@@ -645,7 +666,7 @@ const checkingAccessRef = useRef(false);
             isMeritoriousFamily: false,
             isCulturalFamily: true,
             createdAt: new Date().toISOString().split("T")[0],
-            photoUrl: r.photoUrl || "https://images.unsplash.com/photo-1570129477492-45c003edd2be?auto=format&fit=crop&q=80&w=800",
+            photoUrl: r.photoUrl || "",
             gpsLat: r.gpsLat || 11.365123,
             gpsLng: r.gpsLng || 106.112345,
             notes: `Tự động tổng hợp từ nhân khẩu chủ hộ ${r.fullName}`
@@ -655,15 +676,15 @@ const checkingAccessRef = useRef(false);
         }
       });
 
-      // 2. Đồng bộ tọa độ vị trí GPS của hộ dân cho các nhân khẩu thuộc hộ
+      // 2. Đồng bộ tọa độ vị trí GPS của hộ dân cho các nhân khẩu thuộc hộ (lấy tọa độ hộ khẩu làm mặc định)
       rs = rs.map((r: any) => {
         if (r.householdId && hhMap.has(r.householdId)) {
           const parentHh = hhMap.get(r.householdId)!;
           if (parentHh.gpsLat !== undefined && parentHh.gpsLng !== undefined) {
             return {
               ...r,
-              gpsLat: r.gpsLat ?? parentHh.gpsLat,
-              gpsLng: r.gpsLng ?? parentHh.gpsLng
+              gpsLat: parentHh.gpsLat,
+              gpsLng: parentHh.gpsLng
             };
           }
         }
@@ -726,12 +747,30 @@ const checkingAccessRef = useRef(false);
     }
   };
 
+  const safeFetchJson = async (url: string, options?: RequestInit) => {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok) return { ok: false, data: null };
+      const ct = res.headers.get("content-type");
+      if (ct && ct.includes("application/json")) {
+        return { ok: true, data: await res.json() };
+      }
+      const text = await res.text();
+      try {
+        return { ok: true, data: JSON.parse(text) };
+      } catch {
+        return { ok: false, data: null };
+      }
+    } catch {
+      return { ok: false, data: null };
+    }
+  };
+
   const checkSecurityAlerts = async () => {
     if (currentUser && currentUser.role === UserRole.SUPER_ADMIN) {
       try {
-        const res = await fetch("/api/logs");
-        if (res.ok) {
-          const logs = await res.json();
+        const { ok, data: logs } = await safeFetchJson("/api/logs");
+        if (ok && Array.isArray(logs)) {
           // Filter logs that are security warnings (like unauthorized access attempts)
           const securityLogs = logs.filter((log: any) => {
             const isWarning = log.action?.includes("CẢNH BÁO") || log.details?.includes("chưa được cấp quyền");
@@ -767,7 +806,7 @@ const checkingAccessRef = useRef(false);
           }
         }
       } catch (e) {
-        console.error("Failed to check security alerts", e);
+        // Quietly ignore
       }
     } else {
       setLatestSecurityAlert(null);
@@ -1083,6 +1122,10 @@ const checkingAccessRef = useRef(false);
 
   // CRUD API wrappers with backend updates and immediate local state changes
   const addHousehold = async (newHh: Household) => {
+    if (!canUserPerformAction(currentUser, "add")) {
+      alert("Tài khoản Cộng tác viên của bạn không có quyền thêm mới dữ liệu.");
+      return;
+    }
     setHouseholds(prev => {
       const exists = prev.some(h => h.id === newHh.id);
       const updated = exists ? prev.map(h => h.id === newHh.id ? newHh : h) : [newHh, ...prev];
@@ -1116,8 +1159,8 @@ const checkingAccessRef = useRef(false);
 
   const updateHousehold = async (updatedHh: Household, originalId?: string) => {
     const oldId = originalId || updatedHh.id;
-    if (currentUser?.role === UserRole.COLLABORATOR && existingEntityIds.has(oldId)) {
-      alert("Cộng tác viên không có quyền chỉnh sửa dữ liệu hộ gia đình đã có sẵn trước đó.");
+    if (!canUserPerformAction(currentUser, "edit")) {
+      alert("Tài khoản Cộng tác viên của bạn bị hạn chế quyền chỉnh sửa dữ liệu.");
       return;
     }
     setHouseholds(prev => {
@@ -1175,8 +1218,8 @@ const checkingAccessRef = useRef(false);
   };
 
   const deleteHousehold = async (id: string) => {
-    if (currentUser?.role === UserRole.COLLABORATOR && existingEntityIds.has(id)) {
-      alert("Cộng tác viên không có quyền xoá dữ liệu hộ gia đình đã có sẵn trước đó.");
+    if (!canUserPerformAction(currentUser, "delete")) {
+      alert("Tài khoản Cộng tác viên của bạn không có quyền xoá dữ liệu.");
       return;
     }
     let deletedName = "";
@@ -1203,6 +1246,10 @@ const checkingAccessRef = useRef(false);
   };
 
   const addResident = async (newRes: Resident) => {
+    if (!canUserPerformAction(currentUser, "add")) {
+      alert("Tài khoản Cộng tác viên của bạn không có quyền thêm mới dữ liệu.");
+      return;
+    }
     const linkedHh = households.find(h => h.id === newRes.householdId);
     const finalRes: Resident = linkedHh ? {
       ...newRes,
@@ -1258,8 +1305,8 @@ const checkingAccessRef = useRef(false);
 
   const updateResident = async (updatedRes: Resident, originalId?: string) => {
     const residentId = originalId || updatedRes.id;
-    if (currentUser?.role === UserRole.COLLABORATOR && existingEntityIds.has(residentId)) {
-      alert("Cộng tác viên không có quyền chỉnh sửa dữ liệu nhân khẩu đã có sẵn trước đó.");
+    if (!canUserPerformAction(currentUser, "edit")) {
+      alert("Tài khoản Cộng tác viên của bạn bị hạn chế quyền chỉnh sửa dữ liệu.");
       return;
     }
     const linkedHh = households.find(h => h.id === updatedRes.householdId);
@@ -1315,8 +1362,8 @@ const checkingAccessRef = useRef(false);
   };
 
   const deleteResident = async (id: string) => {
-    if (currentUser?.role === UserRole.COLLABORATOR && existingEntityIds.has(id)) {
-      alert("Cộng tác viên không có quyền xoá dữ liệu nhân khẩu đã có sẵn trước đó.");
+    if (!canUserPerformAction(currentUser, "delete")) {
+      alert("Tài khoản Cộng tác viên của bạn không có quyền xoá dữ liệu.");
       return;
     }
     let deletedName = "";
@@ -1397,8 +1444,8 @@ const checkingAccessRef = useRef(false);
   };
 
   const updateBusiness = async (updatedBus: BusinessHousehold) => {
-    if (currentUser?.role === UserRole.COLLABORATOR && existingEntityIds.has(updatedBus.id)) {
-      alert("Cộng tác viên không có quyền chỉnh sửa dữ liệu hộ kinh doanh đã có sẵn trước đó.");
+    if (!canUserPerformAction(currentUser, "edit")) {
+      alert("Tài khoản Cộng tác viên của bạn bị hạn chế quyền chỉnh sửa dữ liệu.");
       return;
     }
     setBusinesses(prev => {
@@ -1421,8 +1468,8 @@ const checkingAccessRef = useRef(false);
   };
 
   const deleteBusiness = async (id: string) => {
-    if (currentUser?.role === UserRole.COLLABORATOR && existingEntityIds.has(id)) {
-      alert("Cộng tác viên không có quyền xoá dữ liệu hộ kinh doanh đã có sẵn trước đó.");
+    if (!canUserPerformAction(currentUser, "delete")) {
+      alert("Tài khoản Cộng tác viên của bạn không có quyền xoá dữ liệu.");
       return;
     }
     let deletedName = "";
@@ -1558,7 +1605,8 @@ const checkingAccessRef = useRef(false);
     }
     try {
       // Fetch documents first so we can include them in the Excel workbook
-      const documents = await fetch("/api/documents").then(r => r.json()).catch(() => []);
+      const docRes = await safeFetchJson("/api/documents");
+      const documents = Array.isArray(docRes.data) ? docRes.data : [];
 
       // 1. Households sheet
       let maxHhPhotoChunks = 1;
@@ -1574,7 +1622,7 @@ const checkingAccessRef = useRef(false);
       const hhHeaders = [
         "STT", "Mã Hộ Gia Đình", "Mã CCCD Chủ Hộ", "Họ Tên Chủ Hộ", "Số ĐT Chủ Hộ", "Địa Chỉ Thường Trú", 
         "Tổ Dân Phố", "Khu Phố", "Ngày Lập Hộ", "Phân Loại Hộ", "Gia Đình Văn Hoá",
-        "Gia Đình Chính Sách", "Gia Đình Có Công", "Nước Sạch", "Thu Gom Rác", "Thuế Phi Nông Nghiệp (PNN)", "Hộ Nông Nghiệp", "Vĩ Độ (Lat)", "Kinh Độ (Lng)"
+        "Gia Đình Chính Sách", "Gia Đình Có Công", "Nước Sạch", "Thu Gom Rác", "Thuế Phi Nông Nghiệp (PNN)", "Hộ Nông Nghiệp", "Định Danh VNeID", "Vĩ Độ (Lat)", "Kinh Độ (Lng)"
       ];
       hhHeaders.push("Đường Dẫn Ảnh");
       for (let i = 2; i <= maxHhPhotoChunks; i++) {
@@ -1613,6 +1661,7 @@ const checkingAccessRef = useRef(false);
           h.wasteCollectionStatus || (h.isWasteFeePaid ? "Đã đăng ký" : "Chưa đăng ký"),
           h.nonAgriTax || "Chưa nộp",
           h.housingType || "Không",
+          h.vneidStatus || "Chưa đăng ký",
           h.gpsLat || "",
           h.gpsLng || ""
         ];
@@ -1634,7 +1683,7 @@ const checkingAccessRef = useRef(false);
 
       const resHeaders = [
         "STT", "Mã Hộ Gia Đình", "Họ và Tên", "Quan Hệ Chủ Hộ", "Giới Tính", 
-        "Ngày Sinh", "Số CCCD", "Trạng Thái Cư Trú", "Dân Tộc", "Tôn Giáo", 
+        "Ngày Sinh", "Số CCCD", "Trạng Thái Cư Trú", "Định Danh VNeID", "Dân Tộc", "Tôn Giáo", 
         "Trình Độ Học Vấn", "Nghề Nghiệp", "Nơi Làm Việc", "Số Điện Thoại", "Mã Số BHYT",
         "Người Cao Tuổi", "Khuyết Tật", "Mang Thai", "Học Sĩ/Sinh Viên", "Loại Học Sinh",
         "Có Việc Làm", "Lĩnh Vực Lao Động", "Trợ Cấp", "Ghi Chú thực địa", "Vĩ Độ GPS", "Kinh Độ GPS"
@@ -1663,6 +1712,7 @@ const checkingAccessRef = useRef(false);
           r.birthDate,
           `'${r.id}`,
           r.status,
+          r.vneidStatus || "Chưa đăng ký",
           r.ethnicity,
           r.religion,
           r.education,
@@ -1843,7 +1893,8 @@ const checkingAccessRef = useRef(false);
       return;
     }
     try {
-      const documents = await fetch("/api/documents").then(r => r.json()).catch(() => []);
+      const docRes = await safeFetchJson("/api/documents");
+      const documents = Array.isArray(docRes.data) ? docRes.data : [];
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(
         JSON.stringify({ households, residents, businesses, changes, criteria, documents }, null, 2)
       );
@@ -1932,6 +1983,7 @@ const checkingAccessRef = useRef(false);
         wasteCollectionStatus: cleanVal(row["Thu Gom Rác"]),
         nonAgriTax: cleanVal(row["Thuế Phi Nông Nghiệp (PNN)"]) || "Chưa nộp",
         housingType: cleanVal(row["Hộ Nông Nghiệp"]) || cleanVal(row["Loại Nhà Ở"]) || "Không",
+        vneidStatus: cleanVal(row["Định Danh VNeID"]) || cleanVal(row["Mức VNeID"]) || cleanVal(row["VNeID"]) || "Chưa đăng ký",
         gpsLat: parseFloatVal(row["Vĩ Độ (Lat)"]),
         gpsLng: parseFloatVal(row["Kinh Độ (Lng)"]),
         photoUrl,
@@ -1965,6 +2017,7 @@ const checkingAccessRef = useRef(false);
         birthDate: cleanVal(row["Ngày Sinh"]),
         id: cleanVal(row["Số CCCD"]),
         status: cleanVal(row["Trạng Thái Cư Trú"]),
+        vneidStatus: cleanVal(row["Định Danh VNeID"]) || cleanVal(row["Mức VNeID"]) || cleanVal(row["VNeID"]) || "Chưa đăng ký",
         ethnicity: cleanVal(row["Dân Tộc"]),
         religion: cleanVal(row["Tôn Giáo"]),
         education: cleanVal(row["Trình Độ Học Vấn"]),
@@ -2461,7 +2514,7 @@ const checkingAccessRef = useRef(false);
         reportTitle = "Danh sách Nhân khẩu Chi tiết KDC";
         headers = [
           "STT", "Mã Hộ Gia Đình", "Họ và Tên", "Quan Hệ Chủ Hộ", "Giới Tính", 
-          "Ngày Sinh", "Số CCCD", "Số CMND cũ", "Trạng Thái Cư Trú", "Dân Tộc", "Tôn Giáo",
+          "Ngày Sinh", "Số CCCD", "Định Danh VNeID", "Số CMND cũ", "Trạng Thái Cư Trú", "Dân Tộc", "Tôn Giáo",
           "Trình Độ Học Vấn", "Nghề Nghiệp", "Nơi Làm Việc", "Số Điện Thoại", "Mã Số BHYT",
           "Người Cao Tuổi", "Khuyết Tật", "Mang Thai", "Học Sinh/Sinh Viên", "Loại Học Sinh",
           "Có Việc Làm", "Lĩnh Vực Lao Động", "Trợ Cấp"
@@ -2475,6 +2528,7 @@ const checkingAccessRef = useRef(false);
           r.gender,
           r.birthDate,
           `'${r.id}`,
+          r.vneidStatus || "Chưa đăng ký",
           r.oldCmnd || "",
           r.status,
           r.ethnicity,
@@ -2496,7 +2550,7 @@ const checkingAccessRef = useRef(false);
       } else if (titleOrEntity === "households") {
         reportTitle = "Danh sách Hộ gia đình Chi tiết";
         headers = [
-          "STT", "Mã Hộ Gia Đình", "Mã CCCD Chủ Hộ", "Số CMND cũ Chủ Hộ", "Họ Tên Chủ Hộ", "Số ĐT Chủ Hộ", "Địa Chỉ",
+          "STT", "Mã Hộ Gia Đình", "Mã CCCD Chủ Hộ", "Định Danh VNeID", "Số CMND cũ Chủ Hộ", "Họ Tên Chủ Hộ", "Số ĐT Chủ Hộ", "Địa Chỉ",
           "Tổ Dân Phố", "Khu Phố", "Ngày Lập Hộ", "Phân Loại Hộ", "Gia Đình Văn Hoá",
           "Gia Đình Chính Sách", "Gia Đình Có Công", "Nước Sạch", "Thu Gom Rác", "Hộ Nông Nghiệp", "Vĩ Độ (Lat)", "Kinh Độ (Lng)",
           "Ghi Chú"
@@ -2509,6 +2563,7 @@ const checkingAccessRef = useRef(false);
             idx + 1,
             h.id,
             `'${h.ownerId}`,
+            h.vneidStatus || ownerResident?.vneidStatus || "Chưa đăng ký",
             h.ownerOldCmnd || ownerResident?.oldCmnd || "",
             h.ownerName,
             ownerPhone,
@@ -3006,7 +3061,7 @@ if (authLoading || checkingAccess) {
                 <div className="flex-1" />
                 <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl shrink-0">
                   <div className="bg-emerald-800 p-5 text-center text-white space-y-2 flex flex-col items-center">
-                    <div className="w-16 h-16 rounded-full bg-white border-2 border-emerald-400 p-1 flex items-center justify-center shadow-md">
+                    <div className="w-16 h-16 rounded-full bg-white border-2 border-white p-1 flex items-center justify-center shadow-md shrink-0">
                       <img src={officialLogo} alt="Logo" className="w-full h-full object-contain rounded-full" />
                     </div>
                     <div>
@@ -3120,14 +3175,14 @@ if (authLoading || checkingAccess) {
           return (
             <div 
               id="auth-gate-container" 
-              className="h-full w-full bg-slate-50 flex flex-col items-center justify-start p-4 py-8 overflow-y-auto relative"
+              className="h-full w-full bg-white flex flex-col items-center justify-start p-4 py-8 overflow-y-auto relative"
             >
               <div className="flex-1" />
               <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm overflow-hidden shadow-xl shrink-0 max-[400px]:rounded-2xl">
                 {/* Visual Banner */}
                 <div className="bg-emerald-800 p-5 max-[400px]:p-4 text-center text-white space-y-2 flex flex-col items-center">
-                  <div className="w-18 h-18 max-[400px]:w-14 max-[400px]:h-14 rounded-full bg-white border-2 border-emerald-500/20 shadow-lg overflow-hidden flex items-center justify-center p-0.5">
-                    <img src={officialLogo} alt="Logo" className="w-full h-full object-cover rounded-full" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.src = officialLogo; }} />
+                  <div className="w-18 h-18 max-[400px]:w-14 max-[400px]:h-14 rounded-full bg-white border-2 border-white shadow-lg overflow-hidden flex items-center justify-center p-1 shrink-0">
+                    <img src={officialLogo} alt="Logo" className="w-full h-full object-contain rounded-full" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.src = officialLogo; }} />
                   </div>
                   <div>
                     <h3 className="font-bold text-sm tracking-tight uppercase max-[400px]:text-xs">CỔNG XÁC THỰC CÁN BỘ SỐ</h3>
@@ -3345,7 +3400,7 @@ if (authLoading || checkingAccess) {
         // Authenticated Dashboard Layout
         return (
           <div 
-            className={`flex-1 flex flex-col overflow-hidden h-full bg-[#F1F5F9] font-sans text-[#1E293B] transition-colors duration-200 ${theme === "dark" ? "dark-theme-custom" : ""}`}
+            className={`flex-1 flex flex-col overflow-hidden h-full bg-white font-sans text-[#1E293B] transition-colors duration-200 ${theme === "dark" ? "dark-theme-custom" : ""}`}
             style={{ zoom: `${zoomScale}%` }}
           >
             <div className="flex-1 flex overflow-hidden relative">
@@ -3357,25 +3412,24 @@ if (authLoading || checkingAccess) {
               isMobile
                 ? `${isSidebarHidden ? "-translate-x-full w-0 border-r-0" : "translate-x-0 w-72"} absolute inset-y-0 left-0 z-45 shadow-2xl`
                 : `${isSidebarHidden ? "w-20" : "w-72"}`
-            } bg-[#0F172A] relative flex flex-col justify-between shrink-0 border-r border-slate-850 h-full overflow-visible transition-all duration-300 select-none z-35`}>
-              {/* Collapsible/Expandable arrow button positioned directly on the sidebar border - Always visible */}
+            } bg-[#0F172A] relative flex flex-col justify-between shrink-0 border-r border-slate-850 h-full transition-all duration-300 select-none z-35`}>
+              {/* Collapsible/Expandable arrow button positioned directly on the sidebar border edge */}
               <button
                 onClick={() => setIsSidebarHidden(!isSidebarHidden)}
-                className="absolute top-20 -right-3 w-6 h-6 bg-[#0F172A] border border-slate-800 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:border-slate-600 transition-all z-50 cursor-pointer shadow-md hover:scale-105 active:scale-95 flex"
+                className="absolute top-20 -right-3.5 w-7 h-7 bg-[#0F172A] border border-slate-700 hover:border-emerald-400 rounded-full flex items-center justify-center text-slate-300 hover:text-emerald-400 transition-all z-50 cursor-pointer shadow-lg hover:scale-110 active:scale-95"
                 title={isSidebarHidden ? "Mở rộng Menu" : "Thu gọn Menu"}
               >
                 {isSidebarHidden ? (
-                  <ChevronRight className="w-3.5 h-3.5" />
+                  <ChevronRight className="w-4 h-4 text-emerald-400" />
                 ) : (
-                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <ChevronLeft className="w-4 h-4 text-emerald-400" />
                 )}
               </button>
-
               <div className="flex flex-col justify-between h-full w-full overflow-hidden">
                  {/* Brand Header (Fixed Top) */}
                 <div className={`p-4 ${isSidebarHidden ? "pb-3" : "pb-4 sm:p-6"} border-b border-slate-800/60 shrink-0 flex flex-col items-center text-center gap-2`}>
-                  <div className="w-14 h-14 rounded-full bg-white border-2 border-blue-500/30 overflow-hidden flex items-center justify-center p-0.5 shadow-lg shrink-0">
-                    <img src={officialLogo} alt="Logo" className="w-full h-full object-cover rounded-full" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.src = officialLogo; }} />
+                  <div className="w-14 h-14 rounded-full bg-white border-2 border-white overflow-hidden flex items-center justify-center p-1 shadow-lg shrink-0">
+                    <img src={officialLogo} alt="Logo" className="w-full h-full object-contain rounded-full" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.src = officialLogo; }} />
                   </div>
                   {!isSidebarHidden && (
                     <div className="text-center mt-1">
@@ -3483,12 +3537,12 @@ if (authLoading || checkingAccess) {
                   </div>
 
                   <div className="flex items-center gap-3">
-                    {/* Real-time Clock Widget */}
-                    <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 shadow-2xs">
+                    {/* Real-time Clock Widget - Always displayed in Desktop Header */}
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 shadow-2xs shrink-0">
                       <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span className="font-bold text-[11px] text-slate-800 dark:text-slate-100">{formatVietnameseDateTime(currentTime).dateStr}</span>
+                      <span className="font-bold text-[11px] text-slate-800 dark:text-slate-100 whitespace-nowrap">{formatVietnameseDateTime(currentTime).dateStr}</span>
                       <span className="text-slate-300 dark:text-slate-600 font-normal">|</span>
-                      <span className="font-mono font-extrabold text-[12px] text-emerald-600 dark:text-emerald-400 tracking-wider">{formatVietnameseDateTime(currentTime).timeStr}</span>
+                      <span className="font-mono font-extrabold text-[12px] text-emerald-600 dark:text-emerald-400 tracking-wider whitespace-nowrap">{formatVietnameseDateTime(currentTime).timeStr}</span>
                     </div>
 
                     {/* Zoom / View Scale Widget (Sửa lỗi màn hình nhỏ bị cắt góc) */}
@@ -3781,6 +3835,7 @@ if (authLoading || checkingAccess) {
                       households={households} 
                       residents={residents} 
                       businesses={businesses} 
+                      changes={changes}
                       onExport={handleExportSim} 
                       isMobile={isMobile} 
                       userRole={currentUser?.role}
@@ -3795,6 +3850,7 @@ if (authLoading || checkingAccess) {
                     <HouseholdView 
                       households={households} 
                       residents={residents} 
+                      changes={changes}
                       currentUser={currentUser} 
                       onAddHousehold={addHousehold} 
                       onUpdateHousehold={updateHousehold} 
@@ -3814,6 +3870,7 @@ if (authLoading || checkingAccess) {
                     <ResidentView 
                       residents={residents} 
                       households={households} 
+                      changes={changes}
                       currentUser={currentUser} 
                       onAddResident={addResident} 
                       onUpdateResident={updateResident} 
@@ -3840,6 +3897,7 @@ if (authLoading || checkingAccess) {
                     <SocialSecurityView 
                       residents={residents} 
                       households={households} 
+                      changes={changes}
                       onExport={handleExportSim}
                     />
                   )}
@@ -3878,7 +3936,7 @@ if (authLoading || checkingAccess) {
                 </>
               )}
               <footer className="py-4 text-center text-xs text-slate-500 font-medium border-t border-slate-200/80 mt-auto bg-slate-50/50">
-                © Bản quyền thuộc về {currentUser?.fullName ? `${currentUser.fullName} (${currentUser.username || ""})` : "Ủy ban Nhân dân Khu phố Ninh Phú"}
+                © Bản quyền thuộc về {currentUser?.fullName ? currentUser.fullName : "Ủy ban Nhân dân Khu phố Ninh Phú"}
               </footer>
             </div>
 
@@ -3953,8 +4011,8 @@ if (authLoading || checkingAccess) {
     {welcomeModal && welcomeModal.isOpen && (
       <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-md flex justify-center items-center p-4 z-[999999] animate-in fade-in duration-200 select-none">
         <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl border border-emerald-500/30 p-6 space-y-5 text-center relative">
-          <div className="mx-auto w-20 h-20 rounded-full bg-emerald-50 dark:bg-emerald-950/50 p-2 border-2 border-emerald-500/40 shadow-inner flex items-center justify-center animate-bounce">
-            <img src="/logo.png" alt="Logo" className="w-full h-full object-contain rounded-full" />
+          <div className="mx-auto w-20 h-20 rounded-full bg-white p-1 border-2 border-white shadow-lg flex items-center justify-center animate-bounce shrink-0">
+            <img src={officialLogo} alt="Logo" className="w-full h-full object-contain rounded-full" />
           </div>
 
           <div className="space-y-2">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { UserRole, AllowedEmail, PendingRegistration } from "../types";
+import { UserRole, AllowedEmail, PendingRegistration, CollaboratorPermissions } from "../types";
 import { 
   ShieldCheck, 
   Plus, 
@@ -15,7 +15,9 @@ import {
   FileText, 
   UserCheck, 
   HelpCircle,
-  Edit
+  Edit,
+  CheckSquare,
+  Square
 } from "lucide-react";
 
 export default function AllowedEmailsView() {
@@ -24,11 +26,25 @@ export default function AllowedEmailsView() {
   const [securityAlerts, setSecurityAlerts] = useState<any[]>([]);
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<UserRole>(UserRole.WARD_LEADER);
+  const [newPermissions, setNewPermissions] = useState<CollaboratorPermissions>({
+    canAdd: true,
+    canEdit: true,
+    canDelete: false,
+    canExport: true,
+    canApprove: false,
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [editingEmail, setEditingEmail] = useState<AllowedEmail | null>(null);
   const [editingRole, setEditingRole] = useState<UserRole>(UserRole.WARD_LEADER);
+  const [editingPermissions, setEditingPermissions] = useState<CollaboratorPermissions>({
+    canAdd: true,
+    canEdit: true,
+    canDelete: false,
+    canExport: true,
+    canApprove: false,
+  });
   const [quickApproveAlert, setQuickApproveAlert] = useState<{ id: string; email: string; userName: string } | null>(null);
   const [quickApproveRole, setQuickApproveRole] = useState<UserRole>(UserRole.WARD_LEADER);
   const [confirmDeleteModal, setConfirmDeleteModal] = useState<{
@@ -42,6 +58,13 @@ export default function AllowedEmailsView() {
   const handleStartEditRole = (allowed: AllowedEmail) => {
     setEditingEmail(allowed);
     setEditingRole(allowed.role);
+    setEditingPermissions(allowed.permissions || {
+      canAdd: true,
+      canEdit: true,
+      canDelete: false,
+      canExport: true,
+      canApprove: false,
+    });
   };
 
   const handleSaveRole = async () => {
@@ -50,10 +73,11 @@ export default function AllowedEmailsView() {
     setSuccess("");
 
     try {
+      const payloadPermissions = editingRole === UserRole.COLLABORATOR ? editingPermissions : undefined;
       const res = await fetch(`/api/allowed-emails/${encodeURIComponent(editingEmail.email)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: editingRole })
+        body: JSON.stringify({ role: editingRole, permissions: payloadPermissions })
       });
 
       if (!res.ok) {
@@ -61,8 +85,8 @@ export default function AllowedEmailsView() {
         throw new Error(data.error || "Không thể cập nhật vai trò.");
       }
 
-      setAllowedEmails(allowedEmails.map(a => a.email === editingEmail.email ? { ...a, role: editingRole } : a));
-      setSuccess(`Đã cập nhật vai trò của tài khoản ${editingEmail.email} thành công!`);
+      setAllowedEmails(allowedEmails.map(a => a.email === editingEmail.email ? { ...a, role: editingRole, permissions: payloadPermissions } : a));
+      setSuccess(`Đã cập nhật vai trò và phân quyền của tài khoản ${editingEmail.email} thành công!`);
       setEditingEmail(null);
     } catch (err: any) {
       setError(err.message || "Lỗi khi cập nhật vai trò.");
@@ -72,31 +96,57 @@ export default function AllowedEmailsView() {
   // Sub-tabs for approved list, pending request list, and security alerts
   const [subTab, setSubTab] = useState<"approved" | "pending" | "security">("approved");
 
+  const safeJsonFetch = async (url: string) => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const ct = res.headers.get("content-type");
+      if (ct && ct.includes("application/json")) {
+        return await res.json();
+      }
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+  };
+
   const fetchData = async () => {
     try {
       setLoading(true);
       setError("");
       
       // Fetch allowed emails
-      const resAllowed = await fetch("/api/allowed-emails");
-      if (resAllowed.ok) {
-        const data = await resAllowed.json();
-        setAllowedEmails(data);
+      const allowedData = await safeJsonFetch("/api/allowed-emails");
+      if (Array.isArray(allowedData)) {
+        setAllowedEmails(allowedData);
+        try { localStorage.setItem("cache_allowedEmails", JSON.stringify(allowedData)); } catch {}
       } else {
-        setError("Không thể tải danh sách email được cấp quyền.");
+        const cached = localStorage.getItem("cache_allowedEmails");
+        if (cached) {
+          try { setAllowedEmails(JSON.parse(cached)); } catch {}
+        }
       }
 
       // Fetch pending registrations
-      const resPending = await fetch("/api/pending-registrations");
-      if (resPending.ok) {
-        const data = await resPending.json();
-        setPendingRegistrations(data);
+      const pendingData = await safeJsonFetch("/api/pending-registrations");
+      if (Array.isArray(pendingData)) {
+        setPendingRegistrations(pendingData);
+        try { localStorage.setItem("cache_pendingRegistrations", JSON.stringify(pendingData)); } catch {}
+      } else {
+        const cached = localStorage.getItem("cache_pendingRegistrations");
+        if (cached) {
+          try { setPendingRegistrations(JSON.parse(cached)); } catch {}
+        }
       }
 
       // Fetch security alerts from system logs
-      const resLogs = await fetch("/api/logs");
-      if (resLogs.ok) {
-        const logsData = await resLogs.json();
+      const logsData = await safeJsonFetch("/api/logs");
+      if (Array.isArray(logsData)) {
         const filtered = logsData.filter((log: any) => 
           log.action?.includes("CẢNH BÁO") || 
           log.action?.includes("Từ chối đăng nhập") ||
@@ -105,7 +155,7 @@ export default function AllowedEmailsView() {
         setSecurityAlerts(filtered);
       }
     } catch (err) {
-      setError("Có lỗi xảy ra khi kết nối máy chủ.");
+      console.warn("AllowedEmailsView fetchData warning:", err);
     } finally {
       setLoading(false);
     }
@@ -210,13 +260,15 @@ export default function AllowedEmailsView() {
     }
 
     try {
+      const payloadPermissions = newRole === UserRole.COLLABORATOR ? newPermissions : undefined;
       const res = await fetch("/api/allowed-emails", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: emailToSubmit,
           role: newRole,
-          assignedBy: "Người quản lý"
+          assignedBy: "Người quản lý",
+          permissions: payloadPermissions
         })
       });
 
@@ -376,6 +428,55 @@ export default function AllowedEmailsView() {
               </select>
             </div>
 
+            {newRole === UserRole.COLLABORATOR && (
+              <div className="bg-emerald-50/70 rounded-2xl p-3.5 border border-emerald-200/80 space-y-2.5">
+                <div className="flex items-center gap-1.5 text-emerald-900 font-extrabold text-xs">
+                  <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                  <span>Phân quyền chi tiết cho CTV:</span>
+                </div>
+                <div className="space-y-2 text-xs text-slate-700 font-semibold">
+                  <label className="flex items-center gap-2 cursor-pointer select-none hover:text-slate-900">
+                    <input
+                      type="checkbox"
+                      checked={newPermissions.canAdd !== false}
+                      onChange={(e) => setNewPermissions(p => ({ ...p, canAdd: e.target.checked }))}
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                    />
+                    <span>➕ Cho phép <b>Thêm mới</b> dữ liệu</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none hover:text-slate-900">
+                    <input
+                      type="checkbox"
+                      checked={newPermissions.canEdit !== false}
+                      onChange={(e) => setNewPermissions(p => ({ ...p, canEdit: e.target.checked }))}
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                    />
+                    <span>✏️ Cho phép <b>Sửa đổi</b> dữ liệu</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none hover:text-slate-900">
+                    <input
+                      type="checkbox"
+                      checked={newPermissions.canDelete === true}
+                      onChange={(e) => setNewPermissions(p => ({ ...p, canDelete: e.target.checked }))}
+                      className="rounded border-slate-300 text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer"
+                    />
+                    <span className={newPermissions.canDelete ? "text-rose-700 font-bold" : "text-slate-600"}>
+                      🗑️ Cho phép <b>Xóa</b> dữ liệu {newPermissions.canDelete ? "(Đã mở)" : "(Khóa)"}
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none hover:text-slate-900">
+                    <input
+                      type="checkbox"
+                      checked={newPermissions.canExport !== false}
+                      onChange={(e) => setNewPermissions(p => ({ ...p, canExport: e.target.checked }))}
+                      className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                    />
+                    <span>📥 Cho phép <b>Tải xuống / Xuất báo cáo</b></span>
+                  </label>
+                </div>
+              </div>
+            )}
+
             <button
               type="submit"
               className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer duration-200 active:scale-[0.98] uppercase tracking-wider"
@@ -481,15 +582,33 @@ export default function AllowedEmailsView() {
                           </div>
                         </td>
                         <td className="py-3.5 px-4">
-                          <span className={`px-2.5 py-1 rounded-full text-[9px] font-bold uppercase border ${
-                            allowed.role === UserRole.SUPER_ADMIN
-                              ? "bg-purple-50 text-purple-800 border-purple-200"
-                              : allowed.role === UserRole.WARD_LEADER
-                              ? "bg-blue-50 text-blue-800 border-blue-200"
-                              : "bg-emerald-50 text-emerald-800 border-emerald-200"
-                          }`}>
-                            {allowed.role === UserRole.SUPER_ADMIN ? "Quản trị viên" : allowed.role === UserRole.WARD_LEADER ? "Trưởng khu phố" : "CTV / Nhập liệu"}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className={`self-start px-2.5 py-1 rounded-full text-[9px] font-bold uppercase border ${
+                              allowed.role === UserRole.SUPER_ADMIN
+                                ? "bg-purple-50 text-purple-800 border-purple-200"
+                                : allowed.role === UserRole.WARD_LEADER
+                                ? "bg-blue-50 text-blue-800 border-blue-200"
+                                : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                            }`}>
+                              {allowed.role === UserRole.SUPER_ADMIN ? "Quản trị viên" : allowed.role === UserRole.WARD_LEADER ? "Trưởng khu phố" : "CTV / Nhập liệu"}
+                            </span>
+                            {allowed.role === UserRole.COLLABORATOR && (
+                              <div className="flex flex-wrap gap-1 text-[9px] font-semibold mt-0.5">
+                                <span className={`px-1.5 py-0.5 rounded border ${allowed.permissions?.canAdd !== false ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-400 border-slate-200"}`}>
+                                  Thêm: {allowed.permissions?.canAdd !== false ? "Được" : "Không"}
+                                </span>
+                                <span className={`px-1.5 py-0.5 rounded border ${allowed.permissions?.canEdit !== false ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-slate-100 text-slate-400 border-slate-200"}`}>
+                                  Sửa: {allowed.permissions?.canEdit !== false ? "Được" : "Không"}
+                                </span>
+                                <span className={`px-1.5 py-0.5 rounded border ${allowed.permissions?.canDelete === true ? "bg-rose-50 text-rose-700 border-rose-200 font-bold" : "bg-slate-100 text-slate-400 border-slate-200"}`}>
+                                  Xóa: {allowed.permissions?.canDelete === true ? "Được" : "Cấm"}
+                                </span>
+                                <span className={`px-1.5 py-0.5 rounded border ${allowed.permissions?.canExport !== false ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-slate-100 text-slate-400 border-slate-200"}`}>
+                                  Xuất: {allowed.permissions?.canExport !== false ? "Được" : "Cấm"}
+                                </span>
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3.5 px-4 text-slate-500 font-mono text-[10px]">
                           {new Date(allowed.assignedAt).toLocaleDateString("vi-VN")} lúc {new Date(allowed.assignedAt).toLocaleTimeString("vi-VN")}
@@ -740,6 +859,55 @@ export default function AllowedEmailsView() {
                   <option value={UserRole.COLLABORATOR}>Cộng tác viên (COLLABORATOR)</option>
                 </select>
               </div>
+
+              {editingRole === UserRole.COLLABORATOR && (
+                <div className="bg-blue-50/70 rounded-2xl p-3.5 border border-blue-200/80 space-y-2.5">
+                  <div className="flex items-center gap-1.5 text-blue-900 font-extrabold text-xs">
+                    <ShieldCheck className="w-4 h-4 text-blue-700" />
+                    <span>Cấu hình quyền chi tiết CTV:</span>
+                  </div>
+                  <div className="space-y-2 text-xs text-slate-700 font-semibold">
+                    <label className="flex items-center gap-2 cursor-pointer select-none hover:text-slate-900">
+                      <input
+                        type="checkbox"
+                        checked={editingPermissions.canAdd !== false}
+                        onChange={(e) => setEditingPermissions(p => ({ ...p, canAdd: e.target.checked }))}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span>➕ Cho phép <b>Thêm mới</b> dữ liệu</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer select-none hover:text-slate-900">
+                      <input
+                        type="checkbox"
+                        checked={editingPermissions.canEdit !== false}
+                        onChange={(e) => setEditingPermissions(p => ({ ...p, canEdit: e.target.checked }))}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span>✏️ Cho phép <b>Sửa đổi</b> dữ liệu</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer select-none hover:text-slate-900">
+                      <input
+                        type="checkbox"
+                        checked={editingPermissions.canDelete === true}
+                        onChange={(e) => setEditingPermissions(p => ({ ...p, canDelete: e.target.checked }))}
+                        className="rounded border-slate-300 text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span className={editingPermissions.canDelete ? "text-rose-700 font-bold" : "text-slate-600"}>
+                        🗑️ Cho phép <b>Xóa</b> dữ liệu {editingPermissions.canDelete ? "(Đã mở)" : "(Khóa)"}
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer select-none hover:text-slate-900">
+                      <input
+                        type="checkbox"
+                        checked={editingPermissions.canExport !== false}
+                        onChange={(e) => setEditingPermissions(p => ({ ...p, canExport: e.target.checked }))}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span>📥 Cho phép <b>Tải xuống / Xuất báo cáo</b></span>
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-3">

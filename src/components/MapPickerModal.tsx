@@ -9,16 +9,15 @@ import L from "leaflet";
 import React, { useEffect, useRef, useState } from "react";
 import { Crosshair, ExternalLink, MapPin, X, Maximize2, Minimize2 } from "lucide-react";
 
-// Khắc phục lỗi icon mặc định của Leaflet
+// Cấu hình icon ghim bản đồ bằng SVG Data URL (offline, 100% không cần kết nối CDN external)
+const defaultSvgPin = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="44" viewBox="0 0 24 36"><path fill="#ef4444" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 0C5.37 0 0 5.37 0 12c0 9 12 24 12 24s12-15 12-24c0-6.63-5.37-12-12-12zm0 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/><circle cx="12" cy="12" r="4" fill="#FFFFFF"/></svg>`;
+
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+  iconUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(defaultSvgPin)}`,
+  iconRetinaUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(defaultSvgPin)}`,
+  shadowUrl: "",
 });
 
 declare global {
@@ -38,34 +37,6 @@ interface MapPickerModalProps {
 }
 
 const DEFAULT_CENTER: Coordinates = { lat: 11.367716, lng: 106.136728 };
-let mapsLoader: Promise<void> | null = null;
-
-function loadGoogleMaps(apiKey: string) {
-  if (window.google?.maps) return Promise.resolve();
-  if (!apiKey || apiKey === "YOUR_API_KEY" || !apiKey.startsWith("AIza")) {
-    return Promise.reject(new Error("VITE_GOOGLE_MAPS_API_KEY không hợp lệ."));
-  }
-  if (mapsLoader) return mapsLoader;
-
-  mapsLoader = new Promise((resolve, reject) => {
-    (window as any).gm_authFailure = () => {
-      mapsLoader = null;
-      reject(new Error("Khóa Google Maps không hợp lệ hoặc hết hạn."));
-    };
-
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly`;
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => {
-      mapsLoader = null;
-      reject(new Error("Không thể tải Google Maps."));
-    };
-    document.head.appendChild(script);
-  });
-
-  return mapsLoader;
-}
 
 function toCoordinate(value: number | string | undefined) {
   const coordinate =
@@ -93,9 +64,14 @@ function LocationPicker({
 // Component di chuyển mượt bản đồ Leaflet khi chọn vị trí mới
 function FlyTo({ position }: { position: Coordinates }) {
   const map = useMap();
+  const lastPosRef = React.useRef<string>("");
+
   useEffect(() => {
+    const key = `${position.lat.toFixed(6)},${position.lng.toFixed(6)}`;
+    if (key === lastPosRef.current) return;
+    lastPosRef.current = key;
     map.flyTo([position.lat, position.lng], map.getZoom());
-  }, [position, map]);
+  }, [position.lat, position.lng, map]);
 
   return null;
 }
@@ -115,6 +91,8 @@ function MapResizer({ isZoomed, isOpen }: { isZoomed: boolean; isOpen: boolean }
   return null;
 }
 
+import { getCurrentGpsLocation } from "../utils/geolocation";
+
 export default function MapPickerModal({
   isOpen,
   initialLat,
@@ -122,117 +100,17 @@ export default function MapPickerModal({
   onClose,
   onSelect,
 }: MapPickerModalProps) {
-  const mapElementRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<any>(null);
-  const markerRef = useRef<any>(null);
-  
-  const apiKey = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
   const [selected, setSelected] = useState<Coordinates>(() => ({ ...DEFAULT_CENTER }));
-  const [mapProvider, setMapProvider] = useState<"google" | "osm">("osm");
-  const [layerType, setLayerType] = useState<"satellite" | "roadmap">("roadmap");
-  const [mapError, setMapError] = useState("");
+  const [layerType, setLayerType] = useState<"satellite" | "roadmap">("satellite");
   const [searchText, setSearchText] = useState("");
   const [searching, setSearching] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState("");
   const [isZoomed, setIsZoomed] = useState(false);
 
-  useEffect(() => {
-    // If Google Maps JS API fails or is not available, we stay on google provider using Leaflet Satellite tiles
-  }, [mapError]);
-
-  const updateSelectedPosition = (position: Coordinates, panMap = true) => {
+  const updateSelectedPosition = (position: Coordinates) => {
     setSelected(position);
     loadAddress(position.lat, position.lng);
-
-    if (mapProvider === "google" && window.google?.maps) {
-      if (markerRef.current) {
-        markerRef.current.setPosition(position);
-      } else if (mapRef.current) {
-        markerRef.current = new window.google.maps.Marker({
-          map: mapRef.current,
-          position,
-          draggable: true,
-        });
-        markerRef.current.addListener("dragend", (event: any) => {
-          if (!event.latLng) return;
-          const newPos = { lat: event.latLng.lat(), lng: event.latLng.lng() };
-          setSelected(newPos);
-          loadAddress(newPos.lat, newPos.lng);
-        });
-      }
-      if (panMap && mapRef.current) mapRef.current.panTo(position);
-    }
   };
-
-  // Khởi tạo Google Maps khi chọn Provider Google
-  useEffect(() => {
-    if (!isOpen || mapProvider !== "google") return;
-
-    const lat = toCoordinate(initialLat);
-    const lng = toCoordinate(initialLng);
-    const initialPosition = lat !== undefined && lng !== undefined ? { lat, lng } : { ...selected };
-
-    if (!apiKey) {
-      setMapError("Chưa cấu hình VITE_GOOGLE_MAPS_API_KEY.");
-      return;
-    }
-
-    let disposed = false;
-    loadGoogleMaps(apiKey)
-      .then(() => {
-        if (disposed || !mapElementRef.current) return;
-        const map = new window.google.maps.Map(mapElementRef.current, {
-          center: initialPosition,
-          zoom: 17,
-          mapTypeId: window.google.maps.MapTypeId.HYBRID,
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: false,
-        });
-        mapRef.current = map;
-
-        markerRef.current = new window.google.maps.Marker({
-          map,
-          position: initialPosition,
-          draggable: true,
-        });
-
-        markerRef.current.addListener("dragend", (event: any) => {
-          if (event.latLng) {
-            const newPos = { lat: event.latLng.lat(), lng: event.latLng.lng() };
-            setSelected(newPos);
-            loadAddress(newPos.lat, newPos.lng);
-          }
-        });
-
-        map.addListener("click", (event: any) => {
-          if (!event.latLng) return;
-          const position = { lat: event.latLng.lat(), lng: event.latLng.lng() };
-          setSelected(position);
-          if (markerRef.current) markerRef.current.setPosition(position);
-          loadAddress(position.lat, position.lng);
-        });
-      })
-      .catch((error: Error) => {
-        if (disposed) return;
-        setMapError(error.message);
-      });
-
-    return () => {
-      disposed = true;
-      markerRef.current = null;
-      mapRef.current = null;
-    };
-  }, [apiKey, isOpen, mapProvider]);
-
-  useEffect(() => {
-    if (mapRef.current && window.google?.maps) {
-      setTimeout(() => {
-        window.google.maps.event.trigger(mapRef.current, "resize");
-        if (selected) mapRef.current.panTo(selected);
-      }, 150);
-    }
-  }, [isZoomed]);
 
   // Cập nhật vị trí ban đầu khi Modal mở ra
   useEffect(() => {
@@ -242,8 +120,7 @@ export default function MapPickerModal({
       const initialPosition = lat !== undefined && lng !== undefined ? { lat, lng } : { ...DEFAULT_CENTER };
       setSelected(initialPosition);
       loadAddress(initialPosition.lat, initialPosition.lng);
-      setMapProvider("osm");
-      setLayerType("roadmap");
+      setLayerType("satellite");
     }
   }, [isOpen, initialLat, initialLng]);
 
@@ -252,10 +129,14 @@ export default function MapPickerModal({
       const response = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
       );
+      if (!response.ok) {
+        setSelectedAddress(`Tọa độ: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+        return;
+      }
       const result = await response.json();
-      setSelectedAddress(result.display_name ?? "");
+      setSelectedAddress(result.display_name ?? `Tọa độ: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
     } catch {
-      setSelectedAddress("");
+      setSelectedAddress(`Tọa độ: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
     }
   };
 
@@ -289,22 +170,12 @@ export default function MapPickerModal({
   };
 
   const getCurrentLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const currentPos = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          };
-          updateSelectedPosition(currentPos);
-        },
-        () => {
-          alert("Không thể lấy vị trí hiện tại của bạn.");
-        }
-      );
-    } else {
-      alert("Trình duyệt của bạn không hỗ trợ định vị Geolocation.");
-    }
+    getCurrentGpsLocation((coords) => {
+      updateSelectedPosition({
+        lat: coords.lat,
+        lng: coords.lng,
+      });
+    });
   };
 
   if (!isOpen) return null;
@@ -348,39 +219,30 @@ export default function MapPickerModal({
 
         {/* Body */}
         <div className="space-y-3 overflow-y-auto p-4 flex-1 max-h-[calc(90vh-70px)] md:max-h-[calc(94vh-70px)]">
-          {/* Nút chuyển đổi Provider bản đồ */}
+          {/* Nút chuyển đổi lớp bản đồ */}
           <div className="flex items-center justify-between gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200 shrink-0">
             <div className="flex bg-white rounded-full p-1 border border-slate-200 shadow-xs gap-1">
               <button
                 type="button"
-                onClick={() => {
-                  setMapProvider("osm");
-                  setLayerType("roadmap");
-                }}
+                onClick={() => setLayerType("satellite")}
                 className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition cursor-pointer ${
-                  mapProvider === "osm"
+                  layerType === "satellite"
                     ? "bg-[#0b7a43] text-white shadow-xs"
                     : "text-slate-700 hover:bg-slate-100"
                 }`}
               >
-                <span>🌍</span> OpenStreetMap
+                <span>🛰️</span> Vệ tinh
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setMapProvider("google");
-                  setLayerType("satellite");
-                  if (mapRef.current && window.google?.maps) {
-                    mapRef.current.setMapTypeId(window.google.maps.MapTypeId.HYBRID);
-                  }
-                }}
+                onClick={() => setLayerType("roadmap")}
                 className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition cursor-pointer ${
-                  mapProvider === "google"
+                  layerType === "roadmap"
                     ? "bg-[#0b7a43] text-white shadow-xs"
                     : "text-slate-700 hover:bg-slate-100"
                 }`}
               >
-                <span>🗺</span> Google Maps
+                <span>🗺️</span> Đường xá (OSM)
               </button>
             </div>
           </div>
@@ -394,56 +256,23 @@ export default function MapPickerModal({
               <button
                 type="button"
                 onClick={getCurrentLocation}
-                className="flex items-center gap-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white px-2.5 py-1.5 sm:px-3.5 sm:py-1.5 text-xs font-bold shadow-md border border-emerald-500/80 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white px-3.5 py-2 sm:px-4 sm:py-2.5 text-xs sm:text-sm font-bold shadow-xl border-2 border-white ring-2 ring-emerald-500/50 transition-all cursor-pointer"
                 title="Định vị vị trí hiện tại của bạn"
               >
-                <Crosshair className="h-3.5 w-3.5 animate-pulse shrink-0" />
-                <span className="hidden sm:inline">Vị trí hiện tại</span>
-                <span className="sm:hidden">Vị trí</span>
+                <Crosshair className="h-4 w-4 sm:h-5 sm:w-5 animate-pulse shrink-0" />
+                <span className="whitespace-nowrap">Vị trí hiện tại</span>
               </button>
             </div>
 
-            {/* Nút Vệ tinh / Đường xá - Nổi góc trên bên phải */}
-            <div className="absolute top-3 right-2 sm:right-3 z-[1000] bg-white/95 backdrop-blur-md p-1 rounded-full shadow-lg border border-slate-200 flex items-center gap-1 text-xs font-semibold">
-              {mapProvider === "google" ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLayerType("satellite");
-                      if (mapRef.current && window.google?.maps) {
-                        mapRef.current.setMapTypeId(window.google.maps.MapTypeId.HYBRID);
-                      }
-                    }}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full transition cursor-pointer ${
-                      layerType === "satellite"
-                        ? "bg-[#0b7a43] text-white font-bold shadow-xs"
-                        : "text-slate-700 hover:bg-slate-100 font-semibold"
-                    }`}
-                  >
-                    <span>🛰️</span>
-                    <span className="hidden sm:inline">Vệ tinh</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLayerType("roadmap");
-                      if (mapRef.current && window.google?.maps) {
-                        mapRef.current.setMapTypeId(window.google.maps.MapTypeId.ROADMAP);
-                      }
-                    }}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full transition cursor-pointer ${
-                      layerType === "roadmap"
-                        ? "bg-[#0b7a43] text-white font-bold shadow-xs"
-                        : "text-slate-700 hover:bg-slate-100 font-semibold"
-                    }`}
-                  >
-                    <span>🗺️</span>
-                    <span className="hidden sm:inline">Đường xá</span>
-                  </button>
-                </>
+            {/* Nhãn loại bản đồ - Nổi góc trên bên phải */}
+            <div className="absolute top-3 right-2 sm:right-3 z-[1000]">
+              {layerType === "satellite" ? (
+                <div className="flex items-center gap-1 px-3 py-1.5 bg-[#0b7a43] text-white font-bold rounded-full text-xs shadow-md border border-emerald-500/80">
+                  <span>🛰️</span>
+                  <span>Vệ tinh</span>
+                </div>
               ) : (
-                <div className="flex items-center gap-1 px-3 py-1 bg-[#0b7a43] text-white font-bold rounded-full text-xs">
+                <div className="flex items-center gap-1 px-3 py-1.5 bg-[#0b7a43] text-white font-bold rounded-full text-xs shadow-md border border-emerald-500/80">
                   <span>🗺️</span>
                   <span>Đường xá</span>
                 </div>
@@ -451,28 +280,29 @@ export default function MapPickerModal({
             </div>
 
             {/* Bản đồ chính */}
-            {mapProvider === "google" && window.google?.maps ? (
-              <div
-                ref={mapElementRef}
-                className="h-full w-full"
-              />
-            ) : (
-              <MapContainer
-                center={[selected.lat, selected.lng]}
-                zoom={13}
-                className="h-full w-full z-0"
-              >
-                {layerType === "satellite" ? (
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.esri.com/">Esri</a>, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                  />
-                ) : (
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
-                )}
+            <MapContainer
+              center={[selected.lat, selected.lng]}
+              zoom={15}
+              maxZoom={20}
+              className="h-full w-full z-0"
+            >
+              {layerType === "satellite" ? (
+                <TileLayer
+                  attribution='&copy; <a href="https://maps.google.com" target="_blank" rel="noopener noreferrer">Google Maps Vệ Tinh</a>'
+                  url="https://mt{s}.google.com/vt/lyrs=y&hl=vi&x={x}&y={y}&z={z}"
+                  subdomains={["0", "1", "2", "3"]}
+                  maxZoom={22}
+                  maxNativeZoom={20}
+                />
+              ) : (
+                <TileLayer
+                  attribution='&copy; <a href="https://maps.google.com" target="_blank" rel="noopener noreferrer">Google Maps</a>'
+                  url="https://mt{s}.google.com/vt/lyrs=m&hl=vi&x={x}&y={y}&z={z}"
+                  subdomains={["0", "1", "2", "3"]}
+                  maxZoom={22}
+                  maxNativeZoom={20}
+                />
+              )}
                 <Marker
                   position={[selected.lat, selected.lng]}
                   draggable={true}
@@ -494,7 +324,6 @@ export default function MapPickerModal({
                   }}
                 />
               </MapContainer>
-            )}
           </div>
 
           {/* Thanh tìm kiếm */}

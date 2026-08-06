@@ -9,7 +9,8 @@ import {
   Plus, Check, HelpCircle, FileText, MapPin, Users, Download, Printer,
   Table, LayoutGrid, X, Eye
 } from "lucide-react";
-import { Resident, LaborSector, EducationLevel, Household } from "../types";
+import { Resident, LaborSector, EducationLevel, Household, DemographicsChange } from "../types";
+import ResidentStatusBadge from "./ResidentStatusBadge";
 
 const formatDate = (dateStr?: string) => {
   if (!dateStr) return "Chưa cập nhật";
@@ -74,10 +75,11 @@ const getBHYTExpiryStatus = (expiryDateStr?: string) => {
 interface SocialSecurityViewProps {
   residents: Resident[];
   households: Household[];
+  changes?: DemographicsChange[];
   onExport?: (type: "xlsx" | "pdf", title: string, headers: string[], rows: any[][]) => void;
 }
 
-export default function SocialSecurityView({ residents, households, onExport }: SocialSecurityViewProps) {
+export default function SocialSecurityView({ residents, households, changes = [], onExport }: SocialSecurityViewProps) {
   const [activeTab, setActiveTab] = useState<"health" | "education" | "labor" | "welfare">("health");
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
@@ -329,7 +331,10 @@ export default function SocialSecurityView({ residents, households, onExport }: 
                   return (
                     <div key={r.id} className="bg-white p-3 rounded-xl border border-amber-100 flex flex-col justify-between text-xs shadow-xs">
                       <div>
-                        <p className="font-bold text-slate-800 text-sm">{r.fullName}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-bold text-slate-800 text-sm">{r.fullName}</p>
+                          <ResidentStatusBadge resident={r} changes={changes} />
+                        </div>
                         <p className="text-slate-500 mt-1">Mã thẻ: <span className="font-mono font-semibold text-slate-700">{r.insuranceId}</span></p>
                         <p className="text-slate-500">Ngày hết hạn: <span className="font-mono text-slate-700">{formatDate(r.insuranceExpiryDate)}</span></p>
                       </div>
@@ -504,7 +509,12 @@ export default function SocialSecurityView({ residents, households, onExport }: 
                   const age = new Date().getFullYear() - new Date(r.birthDate).getFullYear();
                   return (
                     <tr key={r.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 font-bold text-slate-800">{r.fullName}</td>
+                      <td className="px-4 py-3 font-bold text-slate-800">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{r.fullName}</span>
+                          <ResidentStatusBadge resident={r} changes={changes} />
+                        </div>
+                      </td>
                       <td className="px-4 py-3 font-mono text-slate-500">{age} tuổi</td>
                       <td className="px-4 py-3 text-slate-500">{r.relationToOwner}</td>
                       <td className="px-4 py-3">
@@ -622,7 +632,10 @@ export default function SocialSecurityView({ residents, households, onExport }: 
                         {/* Header */}
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <h5 className="font-bold text-slate-800 text-xs sm:text-sm truncate">{r.fullName}</h5>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <h5 className="font-bold text-slate-800 text-xs sm:text-sm">{r.fullName}</h5>
+                              <ResidentStatusBadge resident={r} changes={changes} />
+                            </div>
                             <p className="text-[10px] text-slate-400 font-medium mt-0.5">Quan hệ: {r.relationToOwner}</p>
                           </div>
                           <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold shrink-0 ${

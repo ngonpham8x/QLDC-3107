@@ -1,17 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { 
-  Search, Plus, FileText, Download, Trash, Edit, Tag, Calendar, User, 
+  Search, Plus, FileText, Download, Trash, Edit, Tag, Calendar, User as UserIcon, 
   Eye, X, Check, Save, FolderOpen, AlertCircle, ShieldAlert 
 } from "lucide-react";
-import { QuarterDocument, UserRole } from "../types";
+import { QuarterDocument, UserRole, User, canUserPerformAction } from "../types";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 
 interface QuarterDocumentsViewProps {
-  currentUser: {
-    id: string;
-    fullName: string;
-    role: UserRole;
-  };
+  currentUser: User;
 }
 
 export default function QuarterDocumentsView({ currentUser }: QuarterDocumentsViewProps) {
@@ -52,9 +48,14 @@ export default function QuarterDocumentsView({ currentUser }: QuarterDocumentsVi
       if (!response.ok) {
         throw new Error("Không thể tải danh sách tài liệu");
       }
-      const data = await response.json();
-      setDocuments(data);
-      setError(null);
+      const ct = response.headers.get("content-type");
+      if (ct && ct.includes("application/json")) {
+        const data = await response.json();
+        setDocuments(data);
+        setError(null);
+      } else {
+        setDocuments([]);
+      }
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Đã xảy ra lỗi khi tải dữ liệu");
@@ -316,7 +317,7 @@ Ban điều hành Tổ dân phố / Khu phố Ninh Phú
     document.body.removeChild(link);
   };
 
-  const isEditable = currentUser.role !== UserRole.COLLABORATOR;
+  const isEditable = canUserPerformAction(currentUser, "add") || canUserPerformAction(currentUser, "edit");
 
   return (
     <div className="flex-1 p-4 sm:p-6 pb-16 space-y-6 overflow-y-auto bg-slate-50 text-slate-800" id="quarter-documents-root">
@@ -448,7 +449,7 @@ Ban điều hành Tổ dân phố / Khu phố Ninh Phú
                     <span>Ban hành: <b className="text-slate-700">{new Date(doc.issueDate).toLocaleDateString("vi-VN")}</b></span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <User className="w-3.5 h-3.5 text-slate-400" />
+                    <UserIcon className="w-3.5 h-3.5 text-slate-400" />
                     <span className="truncate">Nơi phát hành: <b className="text-slate-700 font-semibold">{doc.issuer}</b></span>
                   </div>
                 </div>

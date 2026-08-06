@@ -11,16 +11,19 @@ import {
 } from "lucide-react";
 import Zoom from "react-medium-image-zoom";
 import "react-medium-image-zoom/dist/styles.css";
-import { Resident, Gender, ResidentStatus, EducationLevel, LaborSector, User, UserRole, Household } from "../types";
+import { Resident, Gender, ResidentStatus, EducationLevel, LaborSector, User, UserRole, Household, VNeIDStatus, DemographicsChange, canUserPerformAction } from "../types";
+import ResidentStatusBadge from "./ResidentStatusBadge";
 import { CameraCaptureModal } from "./CameraCaptureModal";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 import { CccdQrScannerModal } from "./CccdQrScannerModal";
 import MapPickerModal from "./MapPickerModal";
+import { getCurrentGpsLocation } from "../utils/geolocation";
 import GoogleGISMap from "./GoogleGISMap";
 
 interface ResidentViewProps {
   residents: Resident[];
   households: Household[];
+  changes?: DemographicsChange[];
   currentUser: User | null;
   onAddResident: (resident: Resident) => void;
   onUpdateResident: (resident: Resident) => void;
@@ -53,7 +56,7 @@ const formatDate = (dateStr?: string) => {
 };
 
 export default function ResidentView({
-  residents, households, currentUser, onAddResident, onUpdateResident, onDeleteResident, onExport, isMobile = false, existingEntityIds
+  residents, households, changes = [], currentUser, onAddResident, onUpdateResident, onDeleteResident, onExport, isMobile = false, existingEntityIds
 }: ResidentViewProps) {
   
   const [searchQuery, setSearchQuery] = useState("");
@@ -64,6 +67,7 @@ export default function ResidentView({
   const [eduFilter, setEduFilter] = useState<string>("ALL");
   const [insuranceFilter, setInsuranceFilter] = useState<string>("ALL");
   const [wardFilter, setWardFilter] = useState<string>("ALL");
+  const [vneidFilter, setVneidFilter] = useState<string>("ALL");
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [showResidentHistory, setShowResidentHistory] = useState(false);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
@@ -71,17 +75,15 @@ export default function ResidentView({
 
   const getResidentGisCoords = (resident: Resident) => {
     const parentHh = households.find((h) => h.id === resident.householdId);
+    if (parentHh && parentHh.gpsLat !== undefined && parentHh.gpsLng !== undefined && !Number.isNaN(Number(parentHh.gpsLat))) {
+      return { lat: Number(parentHh.gpsLat), lng: Number(parentHh.gpsLng) };
+    }
     let lat = resident.gpsLat;
     let lng = resident.gpsLng;
     if (lat === undefined || lng === undefined || Number.isNaN(Number(lat)) || Number.isNaN(Number(lng))) {
-      if (parentHh && parentHh.gpsLat !== undefined && parentHh.gpsLng !== undefined && !Number.isNaN(Number(parentHh.gpsLat))) {
-        lat = Number(parentHh.gpsLat);
-        lng = Number(parentHh.gpsLng);
-      } else {
-        const charSum = (resident.id || resident.fullName || "1").split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
-        lat = parseFloat((11.367716 + ((charSum % 20) - 10) * 0.0006).toFixed(6));
-        lng = parseFloat((106.136728 + (((charSum * 3) % 20) - 10) * 0.0006).toFixed(6));
-      }
+      const charSum = (resident.id || resident.fullName || "1").split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+      lat = parseFloat((11.367716 + ((charSum % 20) - 10) * 0.0006).toFixed(6));
+      lng = parseFloat((106.136728 + (((charSum * 3) % 20) - 10) * 0.0006).toFixed(6));
     } else {
       lat = Number(lat);
       lng = Number(lng);
@@ -97,7 +99,12 @@ export default function ResidentView({
 
   React.useEffect(() => {
     fetch("/api/logs")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) return [];
+        const ct = r.headers.get("content-type");
+        if (ct && ct.includes("application/json")) return r.json();
+        return [];
+      })
       .then((data) => {
         if (Array.isArray(data)) setAuditLogs(data);
       })
@@ -192,6 +199,7 @@ export default function ResidentView({
   const [formPhone, setFormPhone] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formStatus, setFormStatus] = useState<ResidentStatus>(ResidentStatus.PERMANENT);
+  const [formVneidStatus, setFormVneidStatus] = useState<VNeIDStatus>(VNeIDStatus.LEVEL_2);
   const [formEthnicity, setFormEthnicity] = useState("Kinh");
   const [formReligion, setFormReligion] = useState("Không");
   const [formNationality, setFormNationality] = useState("Việt Nam");
@@ -286,8 +294,9 @@ export default function ResidentView({
     }
 
     const matchesWard = wardFilter === "ALL" || (r.wardId || hh?.wardId || "Tổ 1") === wardFilter || (r.permanentAddress || hh?.address || "").includes(wardFilter);
+    const matchesVneid = vneidFilter === "ALL" || (r.vneidStatus || VNeIDStatus.NOT_REGISTERED) === vneidFilter;
 
-    return matchesSearch && matchesStatus && matchesEdu && matchesInsurance && matchesWard;
+    return matchesSearch && matchesStatus && matchesEdu && matchesInsurance && matchesWard && matchesVneid;
   });
 
   // Open Form Add
@@ -304,6 +313,7 @@ export default function ResidentView({
     setFormPhone("");
     setFormEmail("");
     setFormStatus(ResidentStatus.PERMANENT);
+    setFormVneidStatus(VNeIDStatus.LEVEL_2);
     setFormEthnicity("Kinh");
     setFormReligion("Không");
     setFormNationality("Việt Nam");
@@ -344,6 +354,7 @@ export default function ResidentView({
     setFormPhone(r.phone || "");
     setFormEmail(r.email || "");
     setFormStatus(r.status);
+    setFormVneidStatus((r.vneidStatus as VNeIDStatus) || VNeIDStatus.NOT_REGISTERED);
     setFormEthnicity(r.ethnicity);
     setFormReligion(r.religion);
     setFormNationality(r.nationality);
@@ -377,23 +388,17 @@ export default function ResidentView({
 
   const handleScanGps = () => {
     setIsScanningGps(true);
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setFormGpsLat(String(Number(position.coords.latitude.toFixed(6))));
-          setFormGpsLng(String(Number(position.coords.longitude.toFixed(6))));
-          setIsScanningGps(false);
-        },
-        () => {
-          setIsScanningGps(false);
-          alert("Không lấy được vị trí hiện tại. Hãy cho phép quyền vị trí hoặc chọn trực tiếp trên Google Maps.");
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
-    } else {
-      setIsScanningGps(false);
-      alert("Trình duyệt không hỗ trợ định vị. Hãy chọn vị trí trên Google Maps.");
-    }
+    getCurrentGpsLocation(
+      (coords) => {
+        setFormGpsLat(String(coords.lat));
+        setFormGpsLng(String(coords.lng));
+        setIsScanningGps(false);
+      },
+      (errorMsg) => {
+        setIsScanningGps(false);
+        alert(errorMsg);
+      }
+    );
   };
 
   // Handle Scene Photo upload with client-side Data URL FileReader & Compression
@@ -482,6 +487,7 @@ export default function ResidentView({
       phone: formPhone || undefined,
       email: formEmail || undefined,
       status: formStatus,
+      vneidStatus: formVneidStatus,
       ethnicity: formEthnicity,
       religion: formReligion,
       nationality: formNationality,
@@ -595,7 +601,7 @@ export default function ResidentView({
     const customKeysArray = Array.from(customKeys);
 
     const headers = [
-      "STT", "Họ tên Nhân khẩu", "Số CCCD", "CMND cũ", "Ngày sinh", "Tuổi", "Giới tính",
+      "STT", "Họ tên Nhân khẩu", "Số CCCD", "Định Danh VNeID", "CMND cũ", "Ngày sinh", "Tuổi", "Giới tính",
       "Quan hệ với Chủ hộ", "Họ tên Chủ Hộ", "Số ĐT liên hệ", "Tổ dân phố", "Cư trú", "Địa chỉ Thường Trú", "Tạm Trú",
       "BHYT", "Trợ cấp xã hội", "Học vấn", "Nghề nghiệp", "Mã Hộ Gia Đình", "Tọa độ GPS GIS Hộ",
       ...customKeysArray
@@ -615,6 +621,7 @@ export default function ResidentView({
         idx + 1,
         r.fullName,
         r.id,
+        r.vneidStatus || "Chưa đăng ký",
         r.oldCmnd || "",
         r.birthDate,
         getAge(r.birthDate),
@@ -654,7 +661,7 @@ export default function ResidentView({
 
         {/* Action buttons (Export, Scan, Create) */}
         <div className="flex flex-wrap items-center gap-2">
-          {onExport && (
+          {onExport && canUserPerformAction(currentUser, "export") && (
             <>
               <button
                 onClick={() => handleExport("xlsx")}
@@ -675,7 +682,7 @@ export default function ResidentView({
             </>
           )}
 
-          {true && (
+          {canUserPerformAction(currentUser, "add") && (
             <>
               <button
                 onClick={openAddForm}
@@ -730,7 +737,7 @@ export default function ResidentView({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Tổ dân phố / Khu vực</label>
             <select
@@ -758,6 +765,20 @@ export default function ResidentView({
               <option value={ResidentStatus.PERMANENT}>Thường trú</option>
               <option value={ResidentStatus.TEMPORARY_STAY}>Tạm trú</option>
               <option value={ResidentStatus.TEMPORARY_ABSENT}>Tạm vắng</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Định Danh VNeID</label>
+            <select
+              value={vneidFilter}
+              onChange={(e) => setVneidFilter(e.target.value)}
+              className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 font-semibold focus:outline-emerald-600"
+            >
+              <option value="ALL">Tất cả định danh VNeID</option>
+              <option value={VNeIDStatus.LEVEL_2}>🪪 Mức 2</option>
+              <option value={VNeIDStatus.LEVEL_1}>🪪 Mức 1</option>
+              <option value={VNeIDStatus.NOT_REGISTERED}>⚠️ Chưa đăng ký</option>
             </select>
           </div>
 
@@ -810,6 +831,7 @@ export default function ResidentView({
                   <th className="px-4 py-3">Số CCCD</th>
                   <th className="px-4 py-3">Số CMND cũ</th>
                   <th className="px-4 py-3">Cư Trú</th>
+                  <th className="px-4 py-3 text-center">Định Danh VNeID</th>
                   <th className="px-4 py-3">Tổ dân phố</th>
                   <th className="px-4 py-3">ĐC Thường Trú</th>
                   <th className="px-4 py-3">ĐC Tạm Trú</th>
@@ -830,7 +852,10 @@ export default function ResidentView({
                         </span>
                       </td>
                       <td className="px-4 py-3 font-semibold text-slate-800 text-sm">
-                        {r.fullName}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{r.fullName}</span>
+                          <ResidentStatusBadge resident={r} changes={changes} />
+                        </div>
                         {/* Priority tag */}
                         {r.isDisabled && (
                           <span className="ml-1 bg-rose-50 text-rose-600 px-1.5 py-0.2 rounded text-[8px] font-bold">KT</span>
@@ -868,6 +893,19 @@ export default function ResidentView({
                           {r.status}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold inline-flex items-center gap-1 ${
+                          (r.vneidStatus || "Chưa đăng ký") === VNeIDStatus.LEVEL_2
+                            ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                            : (r.vneidStatus || "Chưa đăng ký") === VNeIDStatus.LEVEL_1
+                            ? "bg-blue-100 text-blue-800 border border-blue-200"
+                            : "bg-amber-100 text-amber-800 border border-amber-200"
+                        }`}>
+                          {(r.vneidStatus || "Chưa đăng ký") === VNeIDStatus.LEVEL_2 && "🪪 Mức 2"}
+                          {(r.vneidStatus || "Chưa đăng ký") === VNeIDStatus.LEVEL_1 && "🪪 Mức 1"}
+                          {(r.vneidStatus || "Chưa đăng ký") !== VNeIDStatus.LEVEL_2 && (r.vneidStatus || "Chưa đăng ký") !== VNeIDStatus.LEVEL_1 && "⚠️ Chưa ĐK"}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 font-semibold text-slate-700 font-mono">
                         {r.wardId || "-"}
                       </td>
@@ -897,7 +935,7 @@ export default function ResidentView({
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          {(currentUser?.role !== UserRole.COLLABORATOR || !existingEntityIds?.has(r.id)) && (
+                          {canUserPerformAction(currentUser, "edit") && (
                             <button
                               onClick={() => openEditForm(r)}
                               className="p-1 text-slate-400 hover:text-blue-600 transition-colors cursor-pointer"
@@ -906,7 +944,7 @@ export default function ResidentView({
                               <Edit className="w-4 h-4" />
                             </button>
                           )}
-                          {(currentUser?.role !== UserRole.COLLABORATOR || !existingEntityIds?.has(r.id)) && (
+                          {canUserPerformAction(currentUser, "delete") && (
                             <button
                               onClick={() => {
                                 setResidentToDelete({ id: r.id, fullName: r.fullName });
@@ -966,8 +1004,9 @@ export default function ResidentView({
                     </span>
                   </div>
 
-                  <div className="mt-1 flex items-baseline gap-2">
+                  <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                     <h3 className="text-sm font-bold text-slate-800">{r.fullName}</h3>
+                    <ResidentStatusBadge resident={r} changes={changes} />
                     <span className={`px-2 py-0.2 rounded-full text-[9px] font-bold ${
                       r.gender === Gender.MALE 
                         ? "bg-blue-50 text-blue-600" 
@@ -1056,27 +1095,27 @@ export default function ResidentView({
                     Xem hồ sơ
                   </button>
 
-                  {(currentUser?.role !== UserRole.COLLABORATOR || !existingEntityIds?.has(r.id)) && (
-                    <>
-                      <button
-                        onClick={() => openEditForm(r)}
-                        className="p-2.5 text-blue-600 hover:bg-blue-50 rounded-xl border border-slate-200 hover:border-blue-200 transition-colors cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
-                        title="Sửa thông tin"
-                      >
-                        <Edit className="w-4.5 h-4.5" />
-                      </button>
+                  {canUserPerformAction(currentUser, "edit") && (
+                    <button
+                      onClick={() => openEditForm(r)}
+                      className="p-2.5 text-blue-600 hover:bg-blue-50 rounded-xl border border-slate-200 hover:border-blue-200 transition-colors cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
+                      title="Sửa thông tin"
+                    >
+                      <Edit className="w-4.5 h-4.5" />
+                    </button>
+                  )}
 
-                      <button
-                        onClick={() => {
-                          setResidentToDelete({ id: r.id, fullName: r.fullName });
-                          setDeleteModalOpen(true);
-                        }}
-                        className="p-2.5 text-rose-600 hover:bg-rose-50 rounded-xl border border-slate-200 hover:border-rose-200 transition-colors cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
-                        title="Xoá bản ghi"
-                      >
-                        <Trash2 className="w-4.5 h-4.5" />
-                      </button>
-                    </>
+                  {canUserPerformAction(currentUser, "delete") && (
+                    <button
+                      onClick={() => {
+                        setResidentToDelete({ id: r.id, fullName: r.fullName });
+                        setDeleteModalOpen(true);
+                      }}
+                      className="p-2.5 text-rose-600 hover:bg-rose-50 rounded-xl border border-slate-200 hover:border-rose-200 transition-colors cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
+                      title="Xoá bản ghi"
+                    >
+                      <Trash2 className="w-4.5 h-4.5" />
+                    </button>
                   )}
                 </div>
               </div>
@@ -1101,7 +1140,10 @@ export default function ResidentView({
               <div className="flex items-center gap-3">
                 <Users className="w-6 h-6" />
                 <div>
-                  <h3 className="font-bold text-base">HỒ SƠ CÁ NHÂN: {selectedResident.fullName}</h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-bold text-base">HỒ SƠ CÁ NHÂN: {selectedResident.fullName}</h3>
+                    <ResidentStatusBadge resident={selectedResident} changes={changes} />
+                  </div>
                   <p className="text-xs text-emerald-200 flex items-center gap-2">
                     <span>Mã định danh/CCCD: {selectedResident.id}</span>
                     <span className="bg-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold text-white">
@@ -1157,6 +1199,20 @@ export default function ResidentView({
                 <div>
                   <p className="font-bold text-slate-400 uppercase text-[9px] tracking-wider">Số CMND cũ</p>
                   <p className="text-sm font-semibold text-slate-800 mt-1 font-mono">{selectedResident.oldCmnd || "Chưa cập nhật"}</p>
+                </div>
+                <div>
+                  <p className="font-bold text-slate-400 uppercase text-[9px] tracking-wider">Định danh VNeID</p>
+                  <p className="mt-1">
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold inline-flex items-center gap-1 ${
+                      (selectedResident.vneidStatus || "Chưa đăng ký") === VNeIDStatus.LEVEL_2
+                        ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                        : (selectedResident.vneidStatus || "Chưa đăng ký") === VNeIDStatus.LEVEL_1
+                        ? "bg-blue-100 text-blue-800 border border-blue-200"
+                        : "bg-amber-100 text-amber-800 border border-amber-200"
+                    }`}>
+                      🪪 {selectedResident.vneidStatus || "Chưa đăng ký"}
+                    </span>
+                  </p>
                 </div>
               </div>
 
@@ -1579,6 +1635,18 @@ export default function ResidentView({
                     <option value={ResidentStatus.TEMPORARY_ABSENT}>Tạm vắng</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Định Danh VNeID *</label>
+                  <select
+                    value={formVneidStatus}
+                    onChange={(e) => setFormVneidStatus(e.target.value as VNeIDStatus)}
+                    className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-800 bg-white focus:outline-emerald-600 font-medium"
+                  >
+                    <option value={VNeIDStatus.LEVEL_2}>🪪 Mức 2</option>
+                    <option value={VNeIDStatus.LEVEL_1}>🪪 Mức 1</option>
+                    <option value={VNeIDStatus.NOT_REGISTERED}>⚠️ Chưa đăng ký</option>
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1858,15 +1926,13 @@ export default function ResidentView({
                             <button
                               type="button"
                               onClick={() => {
-                                if (navigator.geolocation) {
-                                  navigator.geolocation.getCurrentPosition(
-                                    (pos) => {
-                                      setFormGpsLat(String(pos.coords.latitude));
-                                      setFormGpsLng(String(pos.coords.longitude));
-                                    },
-                                    () => alert("Không thể định vị GPS hiện tại")
-                                  );
-                                }
+                                getCurrentGpsLocation(
+                                  (coords) => {
+                                    setFormGpsLat(String(coords.lat));
+                                    setFormGpsLng(String(coords.lng));
+                                  },
+                                  (err) => alert(err)
+                                );
                               }}
                               className="py-1.5 px-3 bg-sky-100 hover:bg-sky-200 border border-sky-300 text-sky-900 font-bold text-xs rounded-xl transition cursor-pointer"
                             >

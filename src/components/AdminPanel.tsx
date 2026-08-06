@@ -72,8 +72,11 @@ export default function AdminPanel({
       setLoadingLogs(true);
       const res = await fetch("/api/logs");
       if (res.ok) {
-        const data = await res.json();
-        setLogs(data);
+        const ct = res.headers.get("content-type");
+        if (ct && ct.includes("application/json")) {
+          const data = await res.json();
+          setLogs(data);
+        }
       }
     } catch (err) {
       console.error("Failed to fetch logs:", err);
@@ -87,8 +90,11 @@ export default function AdminPanel({
       setLoadingStatus(true);
       const res = await fetch("/api/data/firestore-status");
       if (res.ok) {
-        const data = await res.json();
-        setDbStatus(data);
+        const ct = res.headers.get("content-type");
+        if (ct && ct.includes("application/json")) {
+          const data = await res.json();
+          setDbStatus(data);
+        }
       }
     } catch (err) {
       console.error("Failed to fetch database status:", err);

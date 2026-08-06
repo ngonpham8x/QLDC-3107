@@ -10,7 +10,8 @@ import {
   Maximize2, Minimize2, ZoomIn, ZoomOut, RotateCcw, Sliders, Crosshair,
   Phone, Calendar, Users
 } from "lucide-react";
-import { RuralCriteria, Household, Resident, User, UserRole } from "../types";
+import { RuralCriteria, Household, Resident, User, UserRole, canUserPerformAction } from "../types";
+import { getCurrentGpsLocation } from "../utils/geolocation";
 import GoogleGISMap from "./GoogleGISMap";
 
 interface NewRuralViewProps {
@@ -65,24 +66,13 @@ export default function NewRuralView({
   };
 
   const handleGetCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      alert("Trình duyệt không hỗ trợ định vị GPS.");
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const currentPos: [number, number] = [
-          position.coords.latitude,
-          position.coords.longitude,
-        ];
-        setCurrentLocation(currentPos);
+    getCurrentGpsLocation(
+      (coords) => {
+        setCurrentLocation([coords.lat, coords.lng]);
         setMapZoom(1);
         setPanOffset({ x: 0, y: 0 });
       },
-      () => {
-        alert("Không lấy được vị trí hiện tại. Vui lòng cho phép truy cập GPS.");
-      }
+      (err) => alert(err)
     );
   };
 
@@ -339,12 +329,53 @@ export default function NewRuralView({
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-400 space-y-2">
-            <MapPin className="w-8 h-8 text-slate-300 animate-bounce" />
-            <p className="font-bold text-sm text-slate-600">Chưa chọn Toạ độ nhà ở</p>
-            <p className="text-[10px] leading-relaxed">
-              Nhấp vào bất kỳ <b className="text-emerald-600">chấm Pin màu</b> nào trên Bản đồ GIS để xem đầy đủ hồ sơ hộ gia đình & thành viên nhân khẩu.
-            </p>
+          <div className="flex-1 flex flex-col justify-between space-y-3 pt-1">
+            <div className="bg-emerald-50/80 border border-emerald-200/90 rounded-2xl p-3.5 text-emerald-950 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-extrabold text-xs text-emerald-900 flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 text-emerald-600" /> THỐNG KÊ GPS TOẠ ĐỘ
+                </span>
+                <span className="bg-emerald-600 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full">
+                  {households.filter(h => h.gpsLat && h.gpsLng && !Number.isNaN(Number(h.gpsLat))).length} / {households.length} Hộ
+                </span>
+              </div>
+              <div className="text-xs text-emerald-800 leading-relaxed font-medium">
+                Tỷ lệ phủ sóng định vị địa chính đạt <strong className="text-emerald-900 font-extrabold">{Math.round((households.filter(h => h.gpsLat && h.gpsLng && !Number.isNaN(Number(h.gpsLat))).length / (households.length || 1)) * 100)}%</strong> trên toàn khu vực Tổ dân phố.
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-1.5 text-xs">
+              <div className="font-bold text-slate-700 text-[11px] uppercase tracking-wide flex items-center gap-1 mb-1">
+                <span>📍 PHÂN LOẠI MÀU MẮT GHIM (PIN):</span>
+              </div>
+              <div className="grid grid-cols-1 gap-1 text-slate-600">
+                <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                  <span className="flex items-center gap-1.5 font-medium text-xs">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500 border border-blue-600"></span> 🔵 Ghim Xanh:
+                  </span>
+                  <span className="font-bold text-slate-800 text-[11px]">Tọa độ độc lập</span>
+                </div>
+                <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                  <span className="flex items-center gap-1.5 font-medium text-xs">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 border border-amber-600"></span> 🟠 Ghim Cam:
+                  </span>
+                  <span className="font-bold text-amber-800 text-[11px]">Tọa độ trùng / gần nhau</span>
+                </div>
+                <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-xl border border-slate-200/80 shadow-2xs">
+                  <span className="flex items-center gap-1.5 font-medium text-xs">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 border border-red-600"></span> 🔴 Ghim Đỏ:
+                  </span>
+                  <span className="font-bold text-red-700 text-[11px]">Hộ đang chọn xem</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="text-center p-2 text-slate-400 space-y-1">
+              <p className="font-bold text-xs text-slate-600">Chưa chọn Hộ gia đình</p>
+              <p className="text-[10px] leading-relaxed text-slate-500">
+                Nhấp vào bất kỳ <b className="text-emerald-700">ghim màu nào</b> trên bản đồ để mở hồ sơ chi tiết.
+              </p>
+            </div>
           </div>
         )}
 
@@ -425,10 +456,10 @@ export default function NewRuralView({
           <button 
             type="button"
             onClick={handleGetCurrentLocation} 
-            className="p-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors cursor-pointer"
+            className="p-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-lg border border-emerald-400/80 transition-colors cursor-pointer active:scale-95 flex items-center justify-center gap-1"
             title="Lấy vị trí hiện tại"
           >
-            <Crosshair className="w-4 h-4" />
+            <Crosshair className="w-5 h-5 animate-pulse" />
           </button>
 
           <button 
@@ -643,7 +674,7 @@ export default function NewRuralView({
                 Đạt chuẩn: {criteria.filter(c => c.status === "Đạt").length} / {criteria.length} tiêu chí quốc gia
               </p>
             </div>
-            {currentUser?.role !== UserRole.COLLABORATOR && (
+            {canUserPerformAction(currentUser, "add") && (
               <button
                 onClick={() => setIsFormOpen(true)}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
@@ -684,7 +715,7 @@ export default function NewRuralView({
                 <div className="border-t border-slate-100 pt-3 mt-4 flex justify-between items-center text-[10px] text-slate-400">
                   <span>Cập nhật ngày: {c.lastUpdated}</span>
                   
-                  {currentUser?.role !== UserRole.COLLABORATOR && (
+                  {canUserPerformAction(currentUser, "edit") && (
                     <button
                       onClick={() => {
                         const nextStatus = c.status === "Đạt" ? "Chưa đạt" : "Đạt";
@@ -710,7 +741,7 @@ export default function NewRuralView({
               selectedHouse={selectedHousePin}
               onSelectHouse={(house) => setSelectedHousePin(house)}
               center={currentLocation || undefined}
-              viewZoom={13}
+              viewZoom={currentLocation ? 15 : undefined}
               currentPosition={currentLocation}
               onGetCurrentLocation={handleGetCurrentLocation}
             />

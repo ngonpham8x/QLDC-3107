@@ -12,7 +12,7 @@ import {
 import { CccdQrScannerModal } from "./CccdQrScannerModal";
 import { 
   DemographicsChange, DemographicsChangeType, Resident, User, UserRole,
-  Gender, ResidentStatus, EducationLevel, LaborSector, Household 
+  Gender, ResidentStatus, EducationLevel, LaborSector, Household, canUserPerformAction 
 } from "../types";
 
 interface DemographicsChangeViewProps {
@@ -416,7 +416,7 @@ export default function DemographicsChangeView({
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          {onExport && (
+          {onExport && canUserPerformAction(currentUser, "export") && (
             <>
               <button
                 onClick={() => handleExport("xlsx")}
@@ -437,7 +437,7 @@ export default function DemographicsChangeView({
             </>
           )}
 
-          {currentUser?.role !== UserRole.COLLABORATOR && (
+          {canUserPerformAction(currentUser, "add") && (
             <button
               onClick={handleOpenForm}
               className="flex items-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 px-4 py-2.5 rounded-xl text-xs font-semibold shadow-md transition-colors cursor-pointer"

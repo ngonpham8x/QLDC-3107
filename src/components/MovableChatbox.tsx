@@ -94,12 +94,17 @@ export default function MovableChatbox() {
         })
       });
 
-      const data = await response.json();
-      setChatMessages(prev => [...prev, { 
-        sender: "bot", 
-        text: data.reply, 
-        source: data.source 
-      }]);
+      const ct = response.headers.get("content-type");
+      if (ct && ct.includes("application/json")) {
+        const data = await response.json();
+        setChatMessages(prev => [...prev, { 
+          sender: "bot", 
+          text: data.reply || "Không nhận được phản hồi hợp lệ.", 
+          source: data.source 
+        }]);
+      } else {
+        throw new Error("Phản hồi không hợp lệ từ máy chủ");
+      }
     } catch (err) {
       console.error("Chat error:", err);
       setChatMessages(prev => [...prev, { 
