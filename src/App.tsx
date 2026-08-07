@@ -31,8 +31,7 @@ import QuarterDocumentsView from "./components/QuarterDocumentsView";
 import { ExportColumnModal } from "./components/ExportColumnModal";
 import { useAuth } from "./context/AuthContext";
 import MovableChatbox from "./components/MovableChatbox";
-import officialLogoAsset from "./assets/images/logo_phuong_binh_minh_official_1782824466988.png";
-const officialLogo = officialLogoAsset || "/logo_phuong_binh_minh_official_1782824466988.png";
+const officialLogo = "/logo_default.png";
 
 export default function App() {
   const { user, loading: authLoading, login: contextLogin, loginWithRedirect: contextLoginWithRedirect, logout: contextLogout } = useAuth();

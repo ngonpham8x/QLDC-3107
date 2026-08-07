@@ -5,8 +5,10 @@ import sharp from "sharp";
 // Perfect vector replica of official Phường Bình Minh logo with pure white circular emblem
 const createBinhMinhLogoSvg = (size = 512) => `
 <svg width="${size}" height="${size}" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <!-- Clean White Circle Container -->
-  <circle cx="256" cy="256" r="256" fill="#ffffff"/>
+  <!-- Clean White Rounded-Square Background -->
+  <rect x="0" y="0" width="${size}" height="${size}" rx="${Math.round(
+    size * 0.12
+  )}" ry="${Math.round(size * 0.12)}" fill="#ffffff"/>
 
   <!-- Centered Emblem Scaled slightly so outer ring stroke is 100% inside canvas -->
   <g transform="translate(25.6, 25.6) scale(0.9)">
