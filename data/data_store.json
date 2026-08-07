@@ -895,6 +895,42 @@
   ],
   "logs": [
     {
+      "id": "LOG-1786101165164",
+      "timestamp": "2026-08-07T11:12:45.164Z",
+      "userId": "Hệ thống",
+      "userName": "Hệ thống",
+      "userRole": "Quản trị viên",
+      "action": "Thiết lập cán bộ",
+      "details": "Nhận được mã IdToken xác thực thành công từ Client"
+    },
+    {
+      "id": "LOG-1786100878549",
+      "timestamp": "2026-08-07T11:07:58.549Z",
+      "userId": "Hệ thống",
+      "userName": "Hệ thống",
+      "userRole": "Quản trị viên",
+      "action": "Thiết lập cán bộ",
+      "details": "Nhận được mã IdToken xác thực thành công từ Client"
+    },
+    {
+      "id": "LOG-1786100521741",
+      "timestamp": "2026-08-07T11:02:01.742Z",
+      "userId": "Hệ thống",
+      "userName": "Hệ thống",
+      "userRole": "Quản trị viên",
+      "action": "Thiết lập cán bộ",
+      "details": "Nhận được mã IdToken xác thực thành công từ Client"
+    },
+    {
+      "id": "LOG-1786100410990",
+      "timestamp": "2026-08-07T11:00:10.990Z",
+      "userId": "Hệ thống",
+      "userName": "Hệ thống",
+      "userRole": "Quản trị viên",
+      "action": "Thiết lập cán bộ",
+      "details": "Nhận được mã IdToken xác thực thành công từ Client"
+    },
+    {
       "id": "LOG-1786098901016",
       "timestamp": "2026-08-07T10:35:01.016Z",
       "userId": "Hệ thống",

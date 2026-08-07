@@ -3074,8 +3074,8 @@ if (authLoading || checkingAccess) {
                 <div className="flex-1" />
                 <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl shrink-0">
                   <div className="bg-emerald-800 p-5 text-center text-white space-y-2 flex flex-col items-center">
-                    <div className="w-16 h-16 rounded-full bg-white border-2 border-white p-1 flex items-center justify-center shadow-md shrink-0">
-                      <img src={officialLogo} alt="Logo" className="w-full h-full object-contain rounded-full" />
+                    <div className="w-16 h-16 rounded-full bg-transparent border-transparent p-1 flex items-center justify-center shadow-md shrink-0">
+                      <img src={officialLogo} alt="Logo" className="w-full h-full object-cover" />
                     </div>
                     <div>
                       <h3 className="font-bold text-sm tracking-tight uppercase">XÁC THỰC BẢO MẬT 2FA</h3>
@@ -3194,8 +3194,8 @@ if (authLoading || checkingAccess) {
               <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-sm overflow-hidden shadow-xl shrink-0 max-[400px]:rounded-2xl">
                 {/* Visual Banner */}
                 <div className="bg-emerald-800 p-5 max-[400px]:p-4 text-center text-white space-y-2 flex flex-col items-center">
-                  <div className="w-18 h-18 max-[400px]:w-14 max-[400px]:h-14 rounded-full bg-white border-2 border-white shadow-lg overflow-hidden flex items-center justify-center p-1 shrink-0">
-                    <img src={officialLogo} alt="Logo" className="w-full h-full object-contain rounded-full" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.src = officialLogo; }} />
+                  <div className="w-18 h-18 max-[400px]:w-14 max-[400px]:h-14 rounded-full bg-transparent border-transparent shadow-lg overflow-hidden flex items-center justify-center p-0 shrink-0">
+                    <img src={officialLogo} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.src = officialLogo; }} />
                   </div>
                   <div>
                     <h3 className="font-bold text-sm tracking-tight uppercase max-[400px]:text-xs">CỔNG XÁC THỰC CÁN BỘ SỐ</h3>
@@ -3441,8 +3441,8 @@ if (authLoading || checkingAccess) {
               <div className="flex flex-col justify-between h-full w-full overflow-hidden">
                  {/* Brand Header (Fixed Top) */}
                 <div className={`p-4 ${isSidebarHidden ? "pb-3" : "pb-4 sm:p-6"} border-b border-slate-800/60 shrink-0 flex flex-col items-center text-center gap-2`}>
-                  <div className="w-14 h-14 rounded-full bg-white border-2 border-white overflow-hidden flex items-center justify-center p-1 shadow-lg shrink-0">
-                    <img src={officialLogo} alt="Logo" className="w-full h-full object-contain rounded-full" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.src = officialLogo; }} />
+                  <div className="w-14 h-14 rounded-full bg-transparent border-transparent overflow-hidden flex items-center justify-center p-0 shadow-lg shrink-0">
+                    <img src={officialLogo} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.src = officialLogo; }} />
                   </div>
                   {!isSidebarHidden && (
                     <div className="text-center mt-1">
@@ -4024,8 +4024,8 @@ if (authLoading || checkingAccess) {
     {welcomeModal && welcomeModal.isOpen && (
       <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-md flex justify-center items-center p-4 z-[999999] animate-in fade-in duration-200 select-none">
         <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl border border-emerald-500/30 p-6 space-y-5 text-center relative">
-          <div className="mx-auto w-20 h-20 rounded-full bg-white p-1 border-2 border-white shadow-lg flex items-center justify-center animate-bounce shrink-0">
-            <img src={officialLogo} alt="Logo" className="w-full h-full object-contain rounded-full" />
+          <div className="mx-auto w-20 h-20 rounded-full bg-transparent p-0 border-transparent shadow-lg flex items-center justify-center animate-bounce shrink-0">
+            <img src={officialLogo} alt="Logo" className="w-full h-full object-cover" />
           </div>
 
           <div className="space-y-2">
