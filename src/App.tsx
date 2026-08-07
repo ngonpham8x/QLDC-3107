@@ -360,6 +360,22 @@ const checkingAccessRef = useRef(false);
     return trimmed || "Cán bộ số";
   };
 
+  const prettyNameFromEmail = (email: string): string => {
+    if (!email) return "Cán bộ Quản lý";
+    const localPart = email.split("@")[0] || "";
+    const cleaned = localPart
+      .replace(/[._\-]+/g, " ")
+      .replace(/\d+/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!cleaned) return "Cán bộ Quản lý";
+    return cleaned
+      .split(" ")
+      .filter(Boolean)
+      .map(word => word[0].toUpperCase() + word.slice(1).toLowerCase())
+      .join(" ");
+  };
+
   const getUserInitials = (nameStr: string): string => {
     if (!nameStr) return "CB";
     const parts = nameStr.trim().split(/\s+/).filter(Boolean);
@@ -487,9 +503,7 @@ const checkingAccessRef = useRef(false);
             : "Cộng tác viên Nhập liệu";
         setWelcomeModal({
           isOpen: true,
-          fullName: (currentUser.fullName && currentUser.fullName !== "Phạm Duy Ngôn" && currentUser.fullName !== "Cán bộ")
-            ? currentUser.fullName
-            : (currentUser.username ? currentUser.username.split("@")[0] : "Cán bộ Quản lý"),
+          fullName: currentUser.fullName || prettyNameFromEmail(currentUser.username || ""),
           role: roleText
         });
         prevUserLoginIdRef.current = userUniqueKey;

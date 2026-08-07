@@ -255,6 +255,28 @@ export default function HouseholdView({
   const [formAgri, setFormAgri] = useState("Không");
   const [gisModalHousehold, setGisModalHousehold] = useState<Household | null>(null);
 
+  const getHouseholdPhone = (household: Household) => {
+    if (household.phone) return household.phone;
+    return residents.find((r) =>
+      r.householdId === household.id &&
+      (
+        r.id === household.ownerId ||
+        r.relationToOwner?.trim().toLowerCase() === "chủ hộ" ||
+        r.fullName === household.ownerName
+      )
+    )?.phone;
+  };
+
+  const resolveHouseholdForGis = (household: Household | null) => {
+    if (!household) return null;
+    return {
+      ...household,
+      phone: household.phone || getHouseholdPhone(household)
+    };
+  };
+
+  const gisModalHouseholdResolved = resolveHouseholdForGis(gisModalHousehold);
+
   React.useEffect(() => {
     fetch("/api/logs")
       .then((r) => {
@@ -1388,7 +1410,7 @@ export default function HouseholdView({
                       {/* Vị trí Bản đồ GIS liên kết */}
                       <button
                         type="button"
-                        onClick={() => setGisModalHousehold(household)}
+                        onClick={() => setGisModalHousehold(resolveHouseholdForGis(household))}
                         className="bg-sky-600 hover:bg-sky-700 active:scale-95 text-white font-bold text-[11px] px-2.5 py-1 rounded-lg transition-all shadow-xs flex items-center gap-1 cursor-pointer"
                         title="Xem liên kết vị trí thực địa trên Bản đồ GIS"
                       >
@@ -2509,11 +2531,11 @@ export default function HouseholdView({
             <div className="flex-1 relative bg-slate-900">
               <GoogleGISMap
                 households={households}
-                selectedHouse={gisModalHousehold}
-                onSelectHouse={(h) => setGisModalHousehold(h)}
+                selectedHouse={gisModalHouseholdResolved}
+                onSelectHouse={(h) => setGisModalHousehold(resolveHouseholdForGis(h))}
                 center={
-                  gisModalHousehold.gpsLat !== undefined && gisModalHousehold.gpsLng !== undefined
-                    ? [gisModalHousehold.gpsLat, gisModalHousehold.gpsLng]
+                  gisModalHouseholdResolved?.gpsLat !== undefined && gisModalHouseholdResolved?.gpsLng !== undefined
+                    ? [gisModalHouseholdResolved.gpsLat, gisModalHouseholdResolved.gpsLng]
                     : [11.367716, 106.136728]
                 }
                 viewZoom={16}
@@ -2524,7 +2546,7 @@ export default function HouseholdView({
             <div className="bg-slate-900 px-6 py-3 border-t border-slate-800 flex flex-wrap items-center justify-between text-xs text-slate-300 gap-3">
               <div className="flex items-center gap-4">
                 <span>Chủ hộ: <strong className="text-white">{gisModalHousehold.ownerName}</strong></span>
-                <span>Số ĐT: <strong className="text-sky-400">{gisModalHousehold.phone || "Chưa có SĐT"}</strong></span>
+                <span>Số ĐT: <strong className="text-sky-400">{getHouseholdPhone(gisModalHousehold) || "Chưa có SĐT"}</strong></span>
                 <span>Địa chỉ: <strong className="text-slate-300">{gisModalHousehold.address}</strong></span>
               </div>
               <button

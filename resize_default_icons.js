@@ -18,31 +18,18 @@ async function run() {
     { file: "public/favicon.ico", size: 64 }
   ];
 
-  const trimmedBuffer = await sharp(src)
+  const sourceBuffer = await sharp(src)
     .ensureAlpha()
     .trim()
-    .resize(480, 480, {
-      fit: "inside",
-      background: { r: 0, g: 0, b: 0, alpha: 0 }
-    })
-    .png()
     .toBuffer();
 
-  const finalLogoBuffer = await sharp({
-    create: {
-      width: 512,
-      height: 512,
-      channels: 4,
-      background: { r: 255, g: 255, b: 255, alpha: 0 }
-    }
-  })
-    .composite([
-      {
-        input: trimmedBuffer,
-        top: Math.floor((512 - 480) / 2),
-        left: Math.floor((512 - 480) / 2)
-      }
-    ])
+  const finalLogoBuffer = await sharp(sourceBuffer)
+    .resize(512, 512, {
+      fit: "contain",
+      background: { r: 255, g: 255, b: 255, alpha: 1 },
+      kernel: sharp.kernel.lanczos3
+    })
+    .flatten({ background: { r: 255, g: 255, b: 255 } })
     .png()
     .toBuffer();
 
@@ -52,8 +39,11 @@ async function run() {
     const resized = await sharp(finalLogoBuffer)
       .resize(t.size, t.size, {
         fit: "contain",
-        background: { r: 255, g: 255, b: 255, alpha: 0 }
+        background: { r: 255, g: 255, b: 255, alpha: 1 },
+        kernel: sharp.kernel.lanczos3
       })
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
+      .sharpen()
       .png()
       .toBuffer();
 
