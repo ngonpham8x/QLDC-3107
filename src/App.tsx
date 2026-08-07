@@ -487,7 +487,7 @@ const checkingAccessRef = useRef(false);
             : "Cộng tác viên Nhập liệu";
         setWelcomeModal({
           isOpen: true,
-          fullName: (currentUser.fullName && currentUser.fullName !== "Linh Tinh" && currentUser.fullName !== "Cán bộ")
+          fullName: (currentUser.fullName && currentUser.fullName !== "Phạm Duy Ngôn" && currentUser.fullName !== "Cán bộ")
             ? currentUser.fullName
             : (currentUser.username ? currentUser.username.split("@")[0] : "Cán bộ Quản lý"),
           role: roleText

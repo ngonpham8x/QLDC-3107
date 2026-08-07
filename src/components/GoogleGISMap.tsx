@@ -80,18 +80,20 @@ function RecenterMap({ center, zoom, bounds }: { center?: [number, number]; zoom
         lastKeyRef.current = key;
 
         if (bounds) {
-            map.fitBounds(bounds, { padding: [45, 45], maxZoom: 17, animate: false });
-            const t1 = setTimeout(() => {
-                map.invalidateSize();
-            }, 150);
-            return () => clearTimeout(t1);
+            try {
+                const b = L.latLngBounds(bounds as any);
+                map.fitBounds(b, { padding: [38, 38], maxZoom: 17, animate: false });
+            } catch {
+                // Ignore invalid bounds
+            }
         } else if (center && zoom) {
-            map.flyTo(center, zoom, { animate: true, duration: 0.8 });
-            const t1 = setTimeout(() => {
-                map.invalidateSize();
-            }, 150);
-            return () => clearTimeout(t1);
+            map.setView(center, zoom, { animate: false });
         }
+
+        const timeout = setTimeout(() => {
+            map.invalidateSize();
+        }, 200);
+        return () => clearTimeout(timeout);
     }, [center?.[0], center?.[1], zoom, bounds, map]);
     return null;
 }
@@ -112,6 +114,10 @@ export default function GoogleGISMap({
     const [mapType, setMapType] = React.useState<"google_map" | "google_hybrid">("google_map");
     const selectedMarkerRef = React.useRef<L.Marker | null>(null);
     const focusMarkerRef = React.useRef<L.Marker | null>(null);
+
+    const coordsAreSame = (a: [number, number], b: [number, number]) => {
+        return Math.abs(a[0] - b[0]) < 0.000025 && Math.abs(a[1] - b[1]) < 0.000025;
+    };
 
     React.useEffect(() => {
         if (selectedMarkerRef.current) {
@@ -226,29 +232,22 @@ export default function GoogleGISMap({
     const zoom = viewZoom || DEFAULT_ZOOM;
 
     return (
-        <div className="relative w-full h-full min-h-[350px]">
-            {/* Top Controls Overlay Container - Flex wrapped to prevent overlapping text on narrow screens */}
-            <div className="absolute top-2 left-12 right-2 sm:top-3 sm:left-14 sm:right-3 z-[1000] pointer-events-none flex flex-wrap items-center justify-between gap-1.5 sm:gap-2">
+        <div className="relative w-full h-full min-h-[320px]">
+            {/* Top Controls Overlay Container - Smaller, compact layout */}
+            <div className="absolute top-2 left-2 right-2 sm:top-3 sm:left-3 sm:right-3 z-[1000] pointer-events-none flex flex-wrap items-center justify-between gap-2">
                 {/* GPS Household Count & Marker Legend Capsule */}
-                <div className="pointer-events-auto bg-white/95 backdrop-blur-md px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full shadow-lg border border-slate-200/90 flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-semibold text-slate-700 max-w-full">
-                    <span className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                <div className="pointer-events-auto bg-white/90 backdrop-blur-md px-3 py-1 rounded-full shadow-sm border border-slate-200/70 flex items-center gap-2 text-[10px] sm:text-[11px] font-semibold text-slate-700 max-w-full">
+                    <span className="flex items-center gap-1 shrink-0">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span className="whitespace-nowrap">Đã có GPS: <strong className="text-emerald-700 font-extrabold">{householdsWithGps.length}/{households.length} hộ</strong></span>
+                        GPS: <strong className="text-emerald-700">{householdsWithGps.length}/{households.length}</strong>
                     </span>
-                    <span className="text-slate-300 hidden xs:inline">|</span>
-                    <span className="hidden xs:flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] shrink-0">
-                        <span className="flex items-center gap-1" title="Hộ dân có tọa độ riêng biệt độc lập">
-                            <span className="w-2 h-2 rounded-full bg-blue-500 border border-blue-600"></span>
-                            <span>Độc lập ({standaloneCount})</span>
-                        </span>
-                        <span className="flex items-center gap-1 text-amber-800" title="Hộ dân có tọa độ trùng hoặc nằm sát nhau">
-                            <span className="w-2 h-2 rounded-full bg-amber-500 border border-amber-600"></span>
-                            <span>Trùng/Gần ({overlappingCount})</span>
-                        </span>
+                    <span className="hidden sm:flex items-center gap-2 text-slate-500">
+                        <span>Độc lập {standaloneCount}</span>
+                        <span>Trùng {overlappingCount}</span>
                     </span>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                     {onGetCurrentLocation && (
                         <button
                             type="button"
@@ -290,8 +289,9 @@ export default function GoogleGISMap({
             </div>
 
             {/* View Altitude Distance Badge */}
-            <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 z-[1000] bg-slate-900/85 backdrop-blur-md text-white text-[10px] sm:text-[11px] font-semibold px-2.5 py-1 rounded-full shadow-md border border-slate-700/60 flex items-center gap-1 pointer-events-none max-w-[calc(100%-1rem)] truncate">
-                <span className="text-xs">🚁</span> Tầm nhìn từ trên không: <strong className="text-emerald-400 font-bold">12,29 km</strong>
+<div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 z-[1000] bg-slate-900/85 backdrop-blur-md text-white text-[10px] font-semibold px-2 py-0.5 rounded-full shadow-sm border border-slate-700/60 flex items-center gap-1 pointer-events-none max-w-[calc(100%-1rem)] truncate">
+                    <span className="text-[10px]">🚁</span>
+                    <span className="whitespace-nowrap">Tầm nhìn: <strong className="text-emerald-400 font-bold">12,29 km</strong></span>
             </div>
 
             <MapContainer
@@ -307,7 +307,7 @@ export default function GoogleGISMap({
                     width: "100%",
                     height: "100%",
                     borderRadius: "16px",
-                    minHeight: "350px"
+                    minHeight: "320px"
                 }}
             >
                 {mapType === "google_hybrid" ? (
@@ -412,7 +412,7 @@ export default function GoogleGISMap({
                 )}
 
                 {focusResident && isValidGps(focusResident.lat, focusResident.lng) && 
-                  (!selectedHouse || selectedHouse.gpsLat !== focusResident.lat || selectedHouse.gpsLng !== focusResident.lng) && (
+                  (!selectedHouse || !isValidGps(selectedHouse.gpsLat, selectedHouse.gpsLng) || !coordsAreSame([selectedHouse.gpsLat!, selectedHouse.gpsLng!], [focusResident.lat, focusResident.lng])) && (
                     <Marker
                         key={`focus-res-${focusResident.fullName}`}
                         icon={redMarkerIcon}

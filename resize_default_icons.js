@@ -12,16 +12,56 @@ async function run() {
     { file: "public/logo-192.png", size: 192 },
     { file: "public/logo-512.png", size: 512 },
     { file: "public/apple-touch-icon.png", size: 180 },
+    { file: "public/favicon-32x32.png", size: 32 },
+    { file: "public/favicon-16x16.png", size: 16 },
     { file: "public/favicon.png", size: 64 },
     { file: "public/favicon.ico", size: 64 }
   ];
 
+  const trimmedBuffer = await sharp(src)
+    .ensureAlpha()
+    .trim()
+    .resize(480, 480, {
+      fit: "inside",
+      background: { r: 0, g: 0, b: 0, alpha: 0 }
+    })
+    .png()
+    .toBuffer();
+
+  const finalLogoBuffer = await sharp({
+    create: {
+      width: 512,
+      height: 512,
+      channels: 4,
+      background: { r: 255, g: 255, b: 255, alpha: 0 }
+    }
+  })
+    .composite([
+      {
+        input: trimmedBuffer,
+        top: Math.floor((512 - 480) / 2),
+        left: Math.floor((512 - 480) / 2)
+      }
+    ])
+    .png()
+    .toBuffer();
+
+  await sharp(finalLogoBuffer).toFile("public/logo_default.png");
+
   for (const t of tasks) {
-    // Preserve content: use 'contain' so image is not cropped and aspect ratio kept.
-    await sharp(src)
-      .resize(t.size, t.size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    const resized = await sharp(finalLogoBuffer)
+      .resize(t.size, t.size, {
+        fit: "contain",
+        background: { r: 255, g: 255, b: 255, alpha: 0 }
+      })
       .png()
-      .toFile(t.file);
+      .toBuffer();
+
+    if (t.file.endsWith(".ico")) {
+      await sharp(resized).toFile(t.file);
+    } else {
+      await sharp(resized).toFile(t.file);
+    }
     console.log("Wrote", t.file);
   }
 

@@ -6,6 +6,9 @@ const urlsToCache = [
   '/logo-192.png',
   '/logo-512.png',
   '/apple-touch-icon.png',
+  '/favicon-32x32.png',
+  '/favicon-16x16.png',
+  '/favicon.ico',
   '/logo_phuong_binh_minh_official_1782824466988.png'
 ];
 

@@ -2480,19 +2480,19 @@ export default function HouseholdView({
 
       {gisModalHousehold && (
         <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-3 md:p-6 animate-fadeIn">
-          <div className="bg-slate-950 border border-slate-800 rounded-3xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+          <div className="bg-slate-950 border border-slate-800 rounded-3xl w-full max-w-3xl h-[72vh] flex flex-col overflow-hidden shadow-2xl">
             {/* Header */}
-            <div className="bg-slate-900/90 px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center">
-                  <MapPin className="w-5 h-5" />
+            <div className="bg-slate-900/90 px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center">
+                  <MapPin className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                    Vị Trí Bản Đồ GIS Thực Địa: Hộ {gisModalHousehold.ownerName}
+                  <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                    Vị trí bản đồ GIS: Hộ {gisModalHousehold.ownerName}
                   </h3>
-                  <p className="text-xs text-slate-400 font-mono">
-                    Mã hộ: {gisModalHousehold.id} • Địa chỉ: {gisModalHousehold.address} ({gisModalHousehold.wardId || "Tổ 5"})
+                  <p className="text-[11px] text-slate-400 font-mono leading-tight">
+                    Mã hộ: {gisModalHousehold.id} • {gisModalHousehold.wardId || "Tổ 5"}
                   </p>
                 </div>
               </div>
