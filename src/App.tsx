@@ -3440,7 +3440,7 @@ if (authLoading || checkingAccess) {
               </button>
               <div className="flex flex-col justify-between h-full w-full overflow-hidden">
                  {/* Brand Header (Fixed Top) */}
-                <div className={`p-4 ${isSidebarHidden ? "pb-3" : "pb-4 sm:p-6"} border-b border-slate-800/60 shrink-0 flex flex-col items-center text-center gap-2`}>
+                <div className={`p-4 ${isSidebarHidden ? "pb-3" : "pb-4 sm:p-6"} border-b border-slate-800/60 shrink-0 flex flex-col items-center text-center gap-2 relative`}>
                   <div className="w-14 h-14 rounded-full bg-transparent border-transparent overflow-hidden flex items-center justify-center p-0 shadow-lg shrink-0">
                     <img src={officialLogo} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.src = officialLogo; }} />
                   </div>
@@ -3449,6 +3449,16 @@ if (authLoading || checkingAccess) {
                       <h1 className="text-white font-extrabold text-xs uppercase tracking-wide leading-tight">QUẢN LÝ DÂN CƯ</h1>
                       <span className="text-blue-400 font-black text-[10px] uppercase tracking-widest block mt-0.5">KHU PHỐ NINH PHÚ</span>
                     </div>
+                  )}
+                  {/* Persistent logout in sidebar header for quick access */}
+                  {!isSidebarHidden && (
+                    <button
+                      onClick={handleLogout}
+                      title="Đăng xuất"
+                      className="absolute top-3 right-3 w-8 h-8 rounded-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                    </button>
                   )}
                 </div>
 
