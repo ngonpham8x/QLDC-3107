@@ -256,22 +256,50 @@ export default function HouseholdView({
   const [gisModalHousehold, setGisModalHousehold] = useState<Household | null>(null);
 
   const getHouseholdPhone = (household: Household) => {
+    const normalizedOwnerName = (household.ownerName || "").trim().toLowerCase();
+    const normalizedHouseholdId = (household.id || "").trim().toLowerCase();
+
     if (household.phone) return household.phone;
-    return residents.find((r) =>
-      r.householdId === household.id &&
-      (
-        r.id === household.ownerId ||
-        r.relationToOwner?.trim().toLowerCase() === "chủ hộ" ||
-        r.fullName === household.ownerName
-      )
-    )?.phone;
+
+    const ownerResident = residents.find((r) => {
+      const householdIdMatch = (r.householdId || "").trim().toLowerCase() === normalizedHouseholdId;
+      const ownerIdMatch = (r.id || "").trim().toLowerCase() === (household.ownerId || "").trim().toLowerCase();
+      const relationMatch = (r.relationToOwner || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ") === "chủ hộ";
+      const nameMatch = (r.fullName || "")
+        .trim()
+        .toLowerCase() === normalizedOwnerName;
+
+      return householdIdMatch && (ownerIdMatch || relationMatch || nameMatch);
+    });
+
+    return ownerResident?.phone || "";
   };
 
   const resolveHouseholdForGis = (household: Household | null) => {
     if (!household) return null;
+
+    const fallbackLat = 11.367716;
+    const fallbackLng = 106.136728;
+    const lat = household.gpsLat !== undefined && household.gpsLat !== null && !Number.isNaN(Number(household.gpsLat))
+      ? Number(household.gpsLat)
+      : fallbackLat;
+    const lng = household.gpsLng !== undefined && household.gpsLng !== null && !Number.isNaN(Number(household.gpsLng))
+      ? Number(household.gpsLng)
+      : fallbackLng;
+
+    const resolvedPhone = household.phone || getHouseholdPhone(household);
+
     return {
       ...household,
-      phone: household.phone || getHouseholdPhone(household)
+      phone: resolvedPhone || "",
+      ownerName: household.ownerName || "Chủ hộ chưa xác định",
+      address: household.address || "Chưa cập nhật địa chỉ",
+      wardId: household.wardId || "Tổ 5",
+      gpsLat: lat,
+      gpsLng: lng
     };
   };
 
@@ -2511,10 +2539,10 @@ export default function HouseholdView({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
-                    Vị trí bản đồ GIS: Hộ {gisModalHousehold.ownerName}
+                    Vị trí bản đồ GIS: Hộ {gisModalHouseholdResolved?.ownerName || "Chủ hộ chưa xác định"}
                   </h3>
                   <p className="text-[11px] text-slate-400 font-mono leading-tight">
-                    Mã hộ: {gisModalHousehold.id} • {gisModalHousehold.wardId || "Tổ 5"}
+                    Mã hộ: {gisModalHouseholdResolved?.id || gisModalHousehold?.id || "N/A"} • {gisModalHouseholdResolved?.wardId || "Tổ 5"}
                   </p>
                 </div>
               </div>
@@ -2545,13 +2573,13 @@ export default function HouseholdView({
             {/* Footer details */}
             <div className="bg-slate-900 px-6 py-3 border-t border-slate-800 flex flex-wrap items-center justify-between text-xs text-slate-300 gap-3">
               <div className="flex items-center gap-4">
-                <span>Chủ hộ: <strong className="text-white">{gisModalHousehold.ownerName}</strong></span>
-                <span>Số ĐT: <strong className="text-sky-400">{getHouseholdPhone(gisModalHousehold) || "Chưa có SĐT"}</strong></span>
-                <span>Địa chỉ: <strong className="text-slate-300">{gisModalHousehold.address}</strong></span>
+                <span>Chủ hộ: <strong className="text-white">{gisModalHouseholdResolved?.ownerName || "Chủ hộ chưa xác định"}</strong></span>
+                <span>Số ĐT: <strong className="text-sky-400">{gisModalHouseholdResolved?.phone || "Chưa có SĐT"}</strong></span>
+                <span>Địa chỉ: <strong className="text-slate-300">{gisModalHouseholdResolved?.address || "Chưa cập nhật địa chỉ"}</strong></span>
               </div>
               <div className="flex items-center gap-2">
                 <a
-                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${gisModalHouseholdResolved?.gpsLat ?? gisModalHousehold.gpsLat ?? 11.367716},${gisModalHouseholdResolved?.gpsLng ?? gisModalHousehold.gpsLng ?? 106.136728}`)}`}
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${gisModalHouseholdResolved?.gpsLat ?? 11.367716},${gisModalHouseholdResolved?.gpsLng ?? 106.136728}`)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
