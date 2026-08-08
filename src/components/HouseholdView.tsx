@@ -1410,9 +1410,18 @@ export default function HouseholdView({
                       {/* Vị trí Bản đồ GIS liên kết */}
                       <button
                         type="button"
-                        onClick={() => setGisModalHousehold(resolveHouseholdForGis(household))}
+                        onClick={() => {
+                          const lat = household.gpsLat !== undefined && household.gpsLng !== undefined
+                            ? Number(household.gpsLat)
+                            : 11.3677;
+                          const lng = household.gpsLat !== undefined && household.gpsLng !== undefined
+                            ? Number(household.gpsLng)
+                            : 106.1367;
+                          const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${lat},${lng}`)}`;
+                          window.open(mapsUrl, "_blank", "noopener,noreferrer");
+                        }}
                         className="bg-sky-600 hover:bg-sky-700 active:scale-95 text-white font-bold text-[11px] px-2.5 py-1 rounded-lg transition-all shadow-xs flex items-center gap-1 cursor-pointer"
-                        title="Xem liên kết vị trí thực địa trên Bản đồ GIS"
+                        title="Mở Google Maps chỉ đường đến vị trí thực địa"
                       >
                         <MapPin className="w-3.5 h-3.5" />
                         <span>
