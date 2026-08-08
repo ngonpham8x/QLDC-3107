@@ -1410,18 +1410,9 @@ export default function HouseholdView({
                       {/* Vị trí Bản đồ GIS liên kết */}
                       <button
                         type="button"
-                        onClick={() => {
-                          const lat = household.gpsLat !== undefined && household.gpsLng !== undefined
-                            ? Number(household.gpsLat)
-                            : 11.3677;
-                          const lng = household.gpsLat !== undefined && household.gpsLng !== undefined
-                            ? Number(household.gpsLng)
-                            : 106.1367;
-                          const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${lat},${lng}`)}`;
-                          window.open(mapsUrl, "_blank", "noopener,noreferrer");
-                        }}
+                        onClick={() => setGisModalHousehold(resolveHouseholdForGis(household))}
                         className="bg-sky-600 hover:bg-sky-700 active:scale-95 text-white font-bold text-[11px] px-2.5 py-1 rounded-lg transition-all shadow-xs flex items-center gap-1 cursor-pointer"
-                        title="Mở Google Maps chỉ đường đến vị trí thực địa"
+                        title="Xem liên kết vị trí thực địa trên Bản đồ GIS"
                       >
                         <MapPin className="w-3.5 h-3.5" />
                         <span>
@@ -2558,13 +2549,24 @@ export default function HouseholdView({
                 <span>Số ĐT: <strong className="text-sky-400">{getHouseholdPhone(gisModalHousehold) || "Chưa có SĐT"}</strong></span>
                 <span>Địa chỉ: <strong className="text-slate-300">{gisModalHousehold.address}</strong></span>
               </div>
-              <button
-                type="button"
-                onClick={() => setGisModalHousehold(null)}
-                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all cursor-pointer"
-              >
-                Đóng bản đồ
-              </button>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${gisModalHouseholdResolved?.gpsLat ?? gisModalHousehold.gpsLat ?? 11.367716},${gisModalHouseholdResolved?.gpsLng ?? gisModalHousehold.gpsLng ?? 106.136728}`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                  <span>Mở Google Maps</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setGisModalHousehold(null)}
+                  className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                >
+                  Đóng bản đồ
+                </button>
+              </div>
             </div>
           </div>
         </div>

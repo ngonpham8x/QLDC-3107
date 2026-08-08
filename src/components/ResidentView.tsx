@@ -1073,13 +1073,9 @@ export default function ResidentView({
                   <div className="pt-1">
                     <button
                       type="button"
-                      onClick={() => {
-                        const { lat, lng } = getResidentGisCoords(r);
-                        const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${lat},${lng}`)}`;
-                        window.open(mapsUrl, "_blank", "noopener,noreferrer");
-                      }}
+                      onClick={() => openGisMapForResident(r)}
                       className="bg-sky-600 hover:bg-sky-700 active:scale-95 text-white font-bold text-[11px] px-3 py-1.5 rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer w-fit"
-                      title="Mở Google Maps chỉ đường đến vị trí thực địa"
+                      title="Xem vị trí thực địa trên Bản đồ GIS"
                     >
                       <MapPin className="w-3.5 h-3.5 shrink-0" />
                       <span>
