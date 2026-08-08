@@ -3596,48 +3596,31 @@ if (authLoading || checkingAccess) {
                       </button>
                     </div>
 
-                    {/* Theme Toggle Button (Day / Night) */}
-                    <button
-                      type="button"
-                      onClick={toggleTheme}
-                      className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl transition-all cursor-pointer flex items-center justify-center shadow-xs active:scale-95 duration-150"
-                      title={theme === "light" ? "Chuyển sang giao diện Đêm (Tối)" : "Chuyển sang giao diện Ngày (Sáng)"}
+                    {/* Compact mobile-style quick menu replacing the two large buttons */}
+                    <select
+                      aria-label="Chức năng nhanh"
+                      className="min-w-[160px] max-w-[210px] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl text-slate-700 shadow-xs outline-none cursor-pointer transition-all"
+                      defaultValue=""
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === "theme") {
+                          toggleTheme();
+                        } else if (value === "ai") {
+                          handleToggleAIChatbox();
+                        }
+                        e.currentTarget.value = "";
+                      }}
                     >
-                      {theme === "light" ? (
-                        <div className="flex items-center gap-1.5 px-1.5 py-0.5 text-[10px] font-extrabold text-slate-700 uppercase tracking-wide">
-                          <Moon className="w-3.5 h-3.5 text-slate-600" />
-                          <span>Giao diện Đêm</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5 px-1.5 py-0.5 text-[10px] font-extrabold text-emerald-600 uppercase tracking-wide">
-                          <Sun className="w-3.5 h-3.5 text-amber-500 animate-spin-slow" />
-                          <span>Giao diện Ngày</span>
-                        </div>
-                      )}
-                    </button>
-
-                    {/* Toggle AI Chatbox Assistant */}
-                    <button
-                      onClick={handleToggleAIChatbox}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-xl text-[10px] font-bold uppercase transition-all duration-150 cursor-pointer shadow-xs active:scale-95 ${
-                        showAIChatbox
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-                          : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100"
-                      }`}
-                      title={showAIChatbox ? "Ẩn hoàn toàn Trợ lý AI" : "Hiện Trợ lý AI"}
-                    >
-                      {showAIChatbox ? (
-                        <>
-                          <Bot className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
-                          <span>Bật Trợ lý AI</span>
-                        </>
-                      ) : (
-                        <>
-                          <EyeOff className="w-3.5 h-3.5 text-slate-400" />
-                          <span>Tắt Trợ lý AI</span>
-                        </>
-                      )}
-                    </button>
+                      <option value="" disabled hidden>
+                        Chọn menu
+                      </option>
+                      <option value="theme">
+                        {theme === "light" ? "Giao diện Đêm" : "Giao diện Ngày"}
+                      </option>
+                      <option value="ai">
+                        {showAIChatbox ? "Tắt Trợ lý AI" : "Bật Trợ lý AI"}
+                      </option>
+                    </select>
 
                     {/* Logout Button in appropriate place (Top Header Bar) */}
                     <button
