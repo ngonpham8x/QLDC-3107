@@ -3538,25 +3538,28 @@ if (authLoading || checkingAccess) {
                       className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 transition-all cursor-pointer mr-1 flex items-center justify-center border border-slate-200"
                       title={isSidebarHidden ? "Mở rộng Menu" : "Thu gọn Menu"}
                     >
-                      {isSidebarHidden ? (
-                        <ChevronRight className="w-5 h-5 text-slate-700" />
-                      ) : (
-                        <ChevronLeft className="w-5 h-5 text-slate-700" />
-                      )}
+                      <Menu className="w-4 h-4 text-slate-700" />
                     </button>
                     <span className="text-slate-400 text-xs font-bold tracking-wider uppercase">Chuyên mục:</span>
-                    <span className="bg-emerald-50 text-emerald-800 text-xs font-bold px-3 py-1 rounded-full border border-emerald-200/60 uppercase tracking-wide">
-                      {activeTab === "dashboard" && "Báo cáo Thống kê"}
-                      {activeTab === "households" && "Quản lý Hộ dân"}
-                      {activeTab === "residents" && "Quản lý Nhân khẩu"}
-                      {activeTab === "changes" && "Biến động cư trú"}
-                      {activeTab === "security" && "An sinh & Y tế"}
-                      {activeTab === "businesses" && "Hộ kinh doanh"}
-                      {activeTab === "rural" && "Nông thôn mới & GIS"}
-                      {activeTab === "documents" && "Tài liệu lưu trữ"}
-                      {activeTab === "ai" && "Trợ lý Trí tuệ Nhân tạo Gemini AI"}
-                      {activeTab === "permissions" && "Quản lý Cấp quyền Truy cập"}
-                    </span>
+                    <select
+                      value={activeTab}
+                      onChange={(e) => setActiveTab(e.target.value)}
+                      className="bg-emerald-50 text-emerald-800 text-xs font-bold px-3 py-1 rounded-full border border-emerald-200/60 uppercase tracking-wide outline-none focus:ring-2 focus:ring-emerald-300/70 cursor-pointer shadow-xs"
+                      aria-label="Chọn chuyên mục"
+                    >
+                      <option value="dashboard">Báo cáo Thống kê</option>
+                      <option value="households">Quản lý Hộ dân</option>
+                      <option value="residents">Quản lý Nhân khẩu</option>
+                      <option value="changes">Biến động cư trú</option>
+                      <option value="security">An sinh & Y tế</option>
+                      <option value="businesses">Hộ kinh doanh</option>
+                      <option value="rural">Nông thôn mới & GIS</option>
+                      <option value="documents">Tài liệu lưu trữ</option>
+                      <option value="ai">Trợ lý Trí tuệ Nhân tạo Gemini AI</option>
+                      {currentUser?.role === UserRole.SUPER_ADMIN && (
+                        <option value="permissions">Quản lý Cấp quyền Truy cập</option>
+                      )}
+                    </select>
                   </div>
 
                   <div className="flex items-center gap-3">
