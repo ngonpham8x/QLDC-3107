@@ -565,8 +565,10 @@ async function loadDatabase() {
 
   const cloudLoaded = await loadFromSupabase();
   if (!cloudLoaded && supabaseConfigured) {
-    console.log("Supabase is empty. Seeding it from the current local database.");
-    await syncAllToSupabase();
+    // A deployment must never overwrite a cloud database from its ephemeral
+    // filesystem. Import the existing data explicitly with the migration
+    // script after creating the table.
+    console.warn("No Supabase records were loaded. Skipping automatic seed.");
   }
 }
 
