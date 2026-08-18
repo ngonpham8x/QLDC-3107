@@ -3376,9 +3376,12 @@ app.post("/api/allowed-emails/import", async (req, res) => {
   const approved = new Map<string, AllowedEmail>();
   for (const entry of source) {
     const email = typeof entry?.email === "string" ? entry.email.trim().toLowerCase() : "";
-    const role = entry?.role;
-    const isSupportedRole = role === UserRole.WARD_LEADER || role === UserRole.COLLABORATOR;
-    if (!email || !/^\S+@\S+\.\S+$/.test(email) || !isSupportedRole || SUPER_ADMIN_EMAILS.has(email)) continue;
+    // Super administrators are defined by the server allow-list. A backup may
+    // contain an older, lower role for one of them; preserve it in the list
+    // with the effective role without allowing a backup to promote new admins.
+    const role = SUPER_ADMIN_EMAILS.has(email) ? UserRole.SUPER_ADMIN : entry?.role;
+    const isSupportedRole = role === UserRole.SUPER_ADMIN || role === UserRole.WARD_LEADER || role === UserRole.COLLABORATOR;
+    if (!email || !/^\S+@\S+\.\S+$/.test(email) || !isSupportedRole) continue;
 
     approved.set(email, {
       id: typeof entry.id === "string" && entry.id ? entry.id : `ALLOW-${Date.now()}-${approved.size + 1}`,
@@ -3406,7 +3409,7 @@ app.post("/api/allowed-emails/import", async (req, res) => {
 });
 
 // POST add allowed email
-app.post("/api/allowed-emails", (req, res) => {
+app.post("/api/allowed-emails", async (req, res) => {
   const { email, role, assignedBy, permissions } = req.body;
   if (!email || !role) {
     return res.status(400).json({ error: "Email và Vai trò là bắt buộc" });
@@ -3415,7 +3418,11 @@ app.post("/api/allowed-emails", (req, res) => {
   if (!db.allowedEmails) db.allowedEmails = [];
   
   const lowerEmail = email.toLowerCase().trim();
-  
+
+  if (role !== UserRole.WARD_LEADER && role !== UserRole.COLLABORATOR) {
+    return res.status(400).json({ error: "Chỉ có thể cấp quyền Trưởng khu phố hoặc CTV từ màn hình này." });
+  }
+
   const adminEmails = ["bhttq3@gmail.com", "tayninhdoimoi@gmail.com", "nguyentanbinh3005@gmail.com"];
   if (adminEmails.includes(lowerEmail)) {
     return res.status(400).json({ error: "Email này là Người quản lý tối cao mặc định, không cần cấp quyền" });
@@ -3435,15 +3442,21 @@ app.post("/api/allowed-emails", (req, res) => {
     permissions: permissions || (role === UserRole.COLLABORATOR ? { canAdd: true, canEdit: false, canDelete: false, canExport: false, canApprove: false } : undefined)
   };
 
-  db.allowedEmails.push(newAllowed);
-  saveDatabase();
-  saveToFirestore("allowedEmails", newAllowed);
-  addLog(assignedBy || "Người quản lý", UserRole.SUPER_ADMIN, "Cấp quyền truy cập", `Cấp quyền cho email ${lowerEmail} với chức vụ ${role}`);
-  res.status(201).json(newAllowed);
+  const nextAllowedEmails = [...db.allowedEmails, newAllowed];
+  try {
+    await syncSupabaseCollection("allowedEmails", nextAllowedEmails);
+    db.allowedEmails = nextAllowedEmails;
+    saveDatabase();
+    addLog(assignedBy || "Người quản lý", UserRole.SUPER_ADMIN, "Cấp quyền truy cập", `Cấp quyền cho email ${lowerEmail} với chức vụ ${role}`);
+    res.status(201).json(newAllowed);
+  } catch (err) {
+    console.error("Failed to grant officer access:", err);
+    res.status(500).json({ error: "Không thể lưu quyền cán bộ lên Supabase." });
+  }
 });
 
 // DELETE remove allowed email
-app.delete("/api/allowed-emails/:email", (req, res) => {
+app.delete("/api/allowed-emails/:email", async (req, res) => {
   const { email } = req.params;
   if (!email) {
     return res.status(400).json({ error: "Email là bắt buộc" });
@@ -3452,20 +3465,30 @@ app.delete("/api/allowed-emails/:email", (req, res) => {
   if (!db.allowedEmails) db.allowedEmails = [];
   
   const lowerEmail = email.toLowerCase().trim();
+  if (SUPER_ADMIN_EMAILS.has(lowerEmail)) {
+    return res.status(400).json({ error: "Tài khoản quản trị tối cao được bảo vệ bởi cấu hình máy chủ." });
+  }
   const index = db.allowedEmails.findIndex(a => a.email.toLowerCase() === lowerEmail);
   if (index !== -1) {
-    const deleted = db.allowedEmails.splice(index, 1)[0];
-    saveDatabase();
-    deleteFromFirestore("allowedEmails", deleted.id);
-    addLog(req.query.user as string || "Người quản lý", UserRole.SUPER_ADMIN, "Hủy quyền truy cập", `Hủy quyền truy cập của email ${lowerEmail}`);
-    res.json({ message: "Đã hủy quyền thành công", deleted });
+    const deleted = db.allowedEmails[index];
+    const nextAllowedEmails = db.allowedEmails.filter((_, itemIndex) => itemIndex !== index);
+    try {
+      await syncSupabaseCollection("allowedEmails", nextAllowedEmails);
+      db.allowedEmails = nextAllowedEmails;
+      saveDatabase();
+      addLog(req.query.user as string || "Người quản lý", UserRole.SUPER_ADMIN, "Hủy quyền truy cập", `Hủy quyền truy cập của email ${lowerEmail}`);
+      res.json({ message: "Đã hủy quyền thành công", deleted });
+    } catch (err) {
+      console.error("Failed to revoke officer access:", err);
+      res.status(500).json({ error: "Không thể cập nhật quyền cán bộ trên Supabase." });
+    }
   } else {
     res.status(404).json({ error: "Không tìm thấy email trong danh sách được cấp quyền" });
   }
 });
 
 // PUT update allowed email role and permissions
-app.put("/api/allowed-emails/:email", (req, res) => {
+app.put("/api/allowed-emails/:email", async (req, res) => {
   const { email } = req.params;
   const { role, permissions } = req.body;
   
@@ -3476,20 +3499,33 @@ app.put("/api/allowed-emails/:email", (req, res) => {
   if (!db.allowedEmails) db.allowedEmails = [];
   
   const lowerEmail = email.toLowerCase().trim();
+  if (SUPER_ADMIN_EMAILS.has(lowerEmail)) {
+    return res.status(400).json({ error: "Vai trò của tài khoản quản trị tối cao được bảo vệ bởi cấu hình máy chủ." });
+  }
+  if (role !== UserRole.WARD_LEADER && role !== UserRole.COLLABORATOR) {
+    return res.status(400).json({ error: "Vai trò không hợp lệ." });
+  }
   const allowedUser = db.allowedEmails.find(a => a.email.toLowerCase() === lowerEmail);
   
   if (allowedUser) {
     const oldRole = allowedUser.role;
-    allowedUser.role = role as UserRole;
-    if (permissions !== undefined) {
-      allowedUser.permissions = permissions;
+    const updatedAllowed = {
+      ...allowedUser,
+      role: role as UserRole,
+      permissions: permissions !== undefined ? permissions : allowedUser.permissions,
+      assignedAt: new Date().toISOString(),
+    };
+    const nextAllowedEmails = db.allowedEmails.map((entry) => entry.email.toLowerCase() === lowerEmail ? updatedAllowed : entry);
+    try {
+      await syncSupabaseCollection("allowedEmails", nextAllowedEmails);
+      db.allowedEmails = nextAllowedEmails;
+      saveDatabase();
+      addLog(req.query.user as string || "Người quản lý", UserRole.SUPER_ADMIN, "Cập nhật quyền truy cập", `Cập nhật vai trò của email ${lowerEmail} từ ${oldRole} thành ${role}`);
+      res.json(updatedAllowed);
+    } catch (err) {
+      console.error("Failed to update officer access:", err);
+      res.status(500).json({ error: "Không thể cập nhật quyền cán bộ trên Supabase." });
     }
-    allowedUser.assignedAt = new Date().toISOString();
-    saveDatabase();
-    saveToFirestore("allowedEmails", allowedUser);
-    
-    addLog(req.query.user as string || "Người quản lý", UserRole.SUPER_ADMIN, "Cập nhật quyền truy cập", `Cập nhật vai trò của email ${lowerEmail} từ ${oldRole} thành ${role}`);
-    res.json(allowedUser);
   } else {
     res.status(404).json({ error: "Không tìm thấy email trong danh sách được cấp quyền" });
   }
