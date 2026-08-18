@@ -171,7 +171,9 @@ function getGeminiClient(): GoogleGenAI | null {
 
 // Ensure database directory exists
 const srcDir = path.join(process.cwd(), "src");
-if (!fs.existsSync(srcDir)) {
+// A Vercel function runs from a read-only deployment directory. This legacy
+// local-development directory is not required by the Supabase-backed runtime.
+if (!isVercel && !fs.existsSync(srcDir)) {
   fs.mkdirSync(srcDir, { recursive: true });
 }
 
