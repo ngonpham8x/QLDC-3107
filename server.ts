@@ -4,7 +4,7 @@
  */
 
 import express from "express";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import fs from "fs";
 import path from "path";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -35,7 +35,10 @@ import {
   QuarterDocument
 } from "./src/types";
 
-dotenv.config();
+const isVercel = Boolean(process.env.VERCEL);
+// Vercel injects environment variables itself. Loading a missing .env file in
+// a Function only adds noisy ENOENT messages to the production logs.
+if (!isVercel) dotenv.config({ quiet: true });
 const otpStore = new Map<string, { code: string; expiresAt: number }>();
 
 const canSendEmail = Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
@@ -54,55 +57,12 @@ const transporter = canSendEmail
     })
   : null;
 
-if (transporter) {
-  transporter.verify(function (error, success) {
-    if (error) {
-      console.error("SMTP VERIFY ERROR:", error);
-    } else {
-      console.log("SMTP SERVER READY");
-    }
-  });
-}
-// Suppress benign Firestore gRPC idle stream connection warnings in server logs
-const suppressBenignFirestoreWarnings = () => {
-  const originalConsoleError = console.error;
-  console.error = (...args: any[]) => {
-    const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(" ");
-    if (
-      msg.includes("Disconnecting idle stream") || 
-      msg.includes("GrpcConnection RPC 'Listen'") || 
-      msg.includes("Timed out waiting for new targets") ||
-      msg.includes("CANCELLED")
-    ) {
-      return;
-    }
-    originalConsoleError(...args);
-  };
-
-  const originalConsoleWarn = console.warn;
-  console.warn = (...args: any[]) => {
-    const msg = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(" ");
-    if (
-      msg.includes("Disconnecting idle stream") || 
-      msg.includes("GrpcConnection RPC 'Listen'") || 
-      msg.includes("Timed out waiting for new targets") ||
-      msg.includes("CANCELLED")
-    ) {
-      return;
-    }
-    originalConsoleWarn(...args);
-  };
-};
-
-suppressBenignFirestoreWarnings();
-
 // Supabase is accessed only from this server using the service-role key. Never
 // expose this key to the Vite client or add it to a VITE_* environment variable.
 const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/$/, "") || "";
 const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const supabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
-const isVercel = Boolean(process.env.VERCEL);
 const FIREBASE_CONFIG_PATH = path.join(process.cwd(), "firebase-applet-config.json");
 const firebaseWebApiKey = (() => {
   if (process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY) {
@@ -605,8 +565,17 @@ async function loadFromSupabase(): Promise<boolean> {
   }
 
   try {
-    const response = await supabaseRequest("app_records?select=collection_name,data");
-    const records = await response.json() as Array<{ collection_name: string; data: any }>;
+    const pageSize = 1_000;
+    const records: Array<{ collection_name: string; data: any }> = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const response = await supabaseRequest(
+        `app_records?select=collection_name,data&order=collection_name.asc,record_id.asc&limit=${pageSize}&offset=${offset}`,
+      );
+      const page = await response.json() as Array<{ collection_name: string; data: any }>;
+      if (!Array.isArray(page)) throw new Error("Supabase returned an invalid records response.");
+      records.push(...page);
+      if (page.length < pageSize) break;
+    }
     if (!Array.isArray(records) || records.length === 0) return false;
 
     const cloudData: Record<string, any[]> = Object.fromEntries(
@@ -672,11 +641,11 @@ async function syncAllToSupabase() {
       })
       .filter(Boolean);
 
-    if (records.length > 0) {
+    for (let offset = 0; offset < records.length; offset += 500) {
       await supabaseRequest("app_records?on_conflict=collection_name,record_id", {
         method: "POST",
         headers: { "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify(records),
+        body: JSON.stringify(records.slice(offset, offset + 500)),
       });
     }
   }
@@ -776,7 +745,6 @@ app.use(express.urlencoded({
     extended: true,
     limit: "50mb"
 }));
-app.use(express.json({ limit: "50mb" }));
 
 let databaseInitialization: Promise<void> | null = null;
 function ensureDatabaseInitialized() {
@@ -845,6 +813,62 @@ function isAuthorizedDataUser(email: string) {
     || Boolean(db.allowedEmails?.some((entry) => entry.email.toLowerCase() === normalizedEmail));
 }
 
+type ServerAction = "add" | "edit" | "delete" | "export" | "admin";
+
+function getAllowedUser(email: string) {
+  const normalizedEmail = email.toLowerCase();
+  return db.allowedEmails?.find((entry) => entry.email.toLowerCase() === normalizedEmail);
+}
+
+function isSuperAdminRequest(req: any) {
+  const email = req.firebaseUser?.email?.toLowerCase();
+  if (!email) return false;
+  return SUPER_ADMIN_EMAILS.has(email) || getAllowedUser(email)?.role === UserRole.SUPER_ADMIN;
+}
+
+function canRequestPerformAction(req: any, action: Exclude<ServerAction, "admin">) {
+  const email = req.firebaseUser?.email?.toLowerCase();
+  if (!email) return false;
+  if (SUPER_ADMIN_EMAILS.has(email)) return true;
+
+  const allowedUser = getAllowedUser(email);
+  if (!allowedUser) return false;
+  if (allowedUser.role === UserRole.SUPER_ADMIN || allowedUser.role === UserRole.WARD_LEADER) return true;
+
+  const permissions = allowedUser.permissions;
+  if (!permissions) return action !== "delete";
+  if (action === "add") return permissions.canAdd !== false;
+  if (action === "edit") return permissions.canEdit !== false;
+  if (action === "delete") return permissions.canDelete === true;
+  return permissions.canExport !== false;
+}
+
+function getRequiredServerAction(req: express.Request): ServerAction | null {
+  const { method, path: requestPath } = req;
+  const administrativeDataPaths = new Set([
+    "/api/data/clear-all",
+    "/api/data/restore",
+    "/api/data/generate-mock",
+    "/api/data/supabase-sync",
+  ]);
+  if (administrativeDataPaths.has(requestPath)) return "admin";
+  if (requestPath.startsWith("/api/allowed-emails")) return "admin";
+  if (
+    requestPath.startsWith("/api/pending-registrations")
+    && (method !== "POST" || requestPath !== "/api/pending-registrations")
+  ) return "admin";
+  if (requestPath === "/api/export") return "export";
+
+  const managedResources = ["/api/households", "/api/residents", "/api/businesses", "/api/changes", "/api/criteria", "/api/documents"];
+  if (!managedResources.some((resource) => requestPath === resource || requestPath.startsWith(`${resource}/`))) {
+    return null;
+  }
+  if (method === "POST") return "add";
+  if (method === "PUT" || method === "PATCH") return "edit";
+  if (method === "DELETE") return "delete";
+  return null;
+}
+
 // Production API access is enforced server-side. A Firebase ID token proves
 // identity and the existing allow-list determines whether that identity may
 // read or modify resident data.
@@ -877,6 +901,22 @@ app.use(async (req, res, next) => {
   if (selfServiceRequest || isAuthorizedDataUser(firebaseUser.email)) return next();
 
   return res.status(403).json({ error: "Tài khoản chưa được cấp quyền truy cập dữ liệu." });
+});
+
+// The client hides restricted actions for each role, but the server must also
+// enforce that policy because browser requests can be forged.
+app.use((req, res, next) => {
+  if (!isVercel && process.env.NODE_ENV !== "production") return next();
+  const action = getRequiredServerAction(req);
+  if (!action) return next();
+
+  if (action === "admin") {
+    if (isSuperAdminRequest(req)) return next();
+  } else if (canRequestPerformAction(req, action)) {
+    return next();
+  }
+
+  return res.status(403).json({ error: "Tài khoản không có quyền thực hiện thao tác này." });
 });
 
 // ==================== GOOGLE OAUTH FLOW ====================

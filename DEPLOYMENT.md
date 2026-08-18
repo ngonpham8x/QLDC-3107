@@ -19,6 +19,12 @@ $env:SUPABASE_SECRET_KEY = "<secret-key>"
 node scripts/migrate-data-to-supabase.mjs --confirm
 ```
 
+Äá»ƒ nháº­p má»™t tệp sao lÆ°u JSON thay vÃ¬ `data/data_store.json`, dÃ¹ng `--source`:
+
+```powershell
+node scripts/migrate-data-to-supabase.mjs --source "C:\Users\Admin\Downloads\Sao_Luu_Toan_Bo_DB_Dan_Cu_20260818.json" --confirm
+```
+
 ## 3. Triển khai Vercel
 
 1. Đưa mã nguồn lên GitHub rồi import repository trong Vercel, hoặc chạy `npx vercel` tại thư mục dự án sau khi đăng nhập.

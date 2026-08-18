@@ -5,7 +5,9 @@ import process from "node:process";
 const confirmed = process.argv.includes("--confirm");
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const serviceKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-const sourcePath = path.resolve(process.cwd(), "data/data_store.json");
+const sourceFlagIndex = process.argv.indexOf("--source");
+const sourceArgument = sourceFlagIndex === -1 ? "data/data_store.json" : process.argv[sourceFlagIndex + 1];
+const sourcePath = path.resolve(process.cwd(), sourceArgument || "");
 const collections = [
   "households",
   "residents",
@@ -23,6 +25,10 @@ if (!confirmed) {
   console.error("Refusing to replace cloud records without --confirm.");
   process.exit(1);
 }
+if (sourceFlagIndex !== -1 && (!sourceArgument || sourceArgument.startsWith("--"))) {
+  console.error("Pass a JSON file path after --source.");
+  process.exit(1);
+}
 if (!supabaseUrl || !serviceKey) {
   console.error("Set SUPABASE_URL and SUPABASE_SECRET_KEY before running this migration.");
   process.exit(1);
@@ -33,6 +39,7 @@ if (!fs.existsSync(sourcePath)) {
 }
 
 const db = JSON.parse(fs.readFileSync(sourcePath, "utf8"));
+console.log(`Importing data from: ${sourcePath}`);
 const headers = {
   apikey: serviceKey,
   Authorization: `Bearer ${serviceKey}`,
@@ -48,6 +55,13 @@ async function request(pathname, init = {}) {
 }
 
 for (const collectionName of collections) {
+  // User-facing backups intentionally omit access-control and audit data.
+  // Preserve those cloud collections rather than accidentally revoking access.
+  if (!Object.hasOwn(db, collectionName)) {
+    console.log(`${collectionName}: skipped (not present in source)`);
+    continue;
+  }
+
   const items = Array.isArray(db[collectionName]) ? db[collectionName] : [];
   const records = items.map((item) => {
     const data = collectionName === "dismissedEmails" && typeof item === "string"
