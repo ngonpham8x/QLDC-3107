@@ -3599,31 +3599,33 @@ if (authLoading || checkingAccess) {
                       </button>
                     </div>
 
-                    {/* Compact mobile-style quick menu replacing the two large buttons */}
-                    <select
-                      aria-label="Chức năng nhanh"
-                      className="min-w-[160px] max-w-[210px] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl text-slate-700 shadow-xs outline-none cursor-pointer transition-all"
-                      defaultValue=""
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        if (value === "theme") {
-                          toggleTheme();
-                        } else if (value === "ai") {
-                          handleToggleAIChatbox();
-                        }
-                        e.currentTarget.value = "";
-                      }}
+                    <button
+                      type="button"
+                      onClick={toggleTheme}
+                      className="w-9 h-9 flex items-center justify-center bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-600 hover:text-slate-900 transition-all cursor-pointer shadow-xs"
+                      title={theme === "light" ? "Chuyển sang giao diện Đêm" : "Chuyển sang giao diện Ngày"}
+                      aria-label={theme === "light" ? "Chuyển sang giao diện Đêm" : "Chuyển sang giao diện Ngày"}
                     >
-                      <option value="" disabled hidden>
-                        Chọn menu
-                      </option>
-                      <option value="theme">
-                        {theme === "light" ? "Giao diện Đêm" : "Giao diện Ngày"}
-                      </option>
-                      <option value="ai">
-                        {showAIChatbox ? "Tắt Trợ lý AI" : "Bật Trợ lý AI"}
-                      </option>
-                    </select>
+                      {theme === "light" ? (
+                        <Moon className="w-4 h-4" />
+                      ) : (
+                        <Sun className="w-4 h-4 text-amber-500" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleToggleAIChatbox}
+                      className={`w-9 h-9 flex items-center justify-center border rounded-xl transition-all cursor-pointer shadow-xs ${
+                        showAIChatbox
+                          ? "bg-emerald-50 text-emerald-600 border-emerald-200"
+                          : "bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-200"
+                      }`}
+                      title={showAIChatbox ? "Tắt Trợ lý AI" : "Bật Trợ lý AI"}
+                      aria-label={showAIChatbox ? "Tắt Trợ lý AI" : "Bật Trợ lý AI"}
+                    >
+                      <Bot className={`w-4 h-4 ${showAIChatbox ? "animate-pulse" : ""}`} />
+                    </button>
 
                     {currentUser.role === UserRole.SUPER_ADMIN && (
                       <button
