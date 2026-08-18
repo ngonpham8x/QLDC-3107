@@ -1,4 +1,11 @@
-import app from "../server";
+import { createRequire } from "node:module";
+
+// Vercel creates an isolated bundle for each file in /api.  Load the Express
+// application from the build artifact that is explicitly included alongside
+// this function, rather than importing a source file outside /api.
+const require = createRequire(import.meta.url);
+const serverModule = require("./_server.cjs");
+const app = serverModule.default || serverModule;
 
 // vercel.json rewrites /api/* to this single Function and passes the original
 // route in `path`. Restore it so the existing Express routes stay unchanged.

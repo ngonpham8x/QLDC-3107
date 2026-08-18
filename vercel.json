@@ -3,6 +3,11 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "api/_server.cjs"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/:path*",
