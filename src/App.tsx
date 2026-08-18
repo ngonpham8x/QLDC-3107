@@ -3366,10 +3366,11 @@ if (authLoading || checkingAccess) {
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => navigateTo("/")}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 hover:text-white border border-slate-700/50 hover:border-slate-600 text-slate-300 text-[11px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95 cursor-pointer"
+                    className="w-9 h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 hover:text-white border border-slate-700/50 hover:border-slate-600 text-slate-300 rounded-xl transition-all active:scale-95 cursor-pointer"
+                    title="Quay lại Bảng cư dân"
+                    aria-label="Quay lại Bảng cư dân"
                   >
-                    <Home className="w-3.5 h-3.5" />
-                    <span>Quay lại Bảng cư dân</span>
+                    <Home className="w-4 h-4" />
                   </button>
                   
                   <button
