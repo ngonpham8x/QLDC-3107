@@ -88,7 +88,7 @@ export default function AdminPanel({
   const fetchDbStatus = async () => {
     try {
       setLoadingStatus(true);
-      const res = await fetch("/api/data/firestore-status");
+      const res = await fetch("/api/data/supabase-status");
       if (res.ok) {
         const ct = res.headers.get("content-type");
         if (ct && ct.includes("application/json")) {
@@ -112,11 +112,11 @@ export default function AdminPanel({
   }, [adminTab]);
 
   const handleSync = async (direction: "pull" | "push") => {
-    // If not connected to Firestore, we run in simulated demo mode to give a great experience
+    // If not connected to Supabase, we run in simulated demo mode to give a great experience
     if (!dbStatus?.connected) {
       const demoConfirmMsg = direction === "pull"
-        ? "Hệ thống hiện đang chạy ở chế độ ngoại tuyến / Demo (chưa liên kết Firebase). Bạn có muốn chạy đồng bộ GIẢ LẬP để kéo dữ liệu mẫu từ Cloud ảo không?"
-        : "Hệ thống hiện đang chạy ở chế độ ngoại tuyến / Demo (chưa liên kết Firebase). Bạn có muốn chạy đồng bộ GIẢ LẬP để đẩy dữ liệu hiện tại lên Cloud ảo không?";
+        ? "Hệ thống hiện đang chạy ở chế độ ngoại tuyến / Demo (chưa liên kết Supabase). Bạn có muốn chạy đồng bộ GIẢ LẬP để kéo dữ liệu mẫu từ Cloud ảo không?"
+        : "Hệ thống hiện đang chạy ở chế độ ngoại tuyến / Demo (chưa liên kết Supabase). Bạn có muốn chạy đồng bộ GIẢ LẬP để đẩy dữ liệu hiện tại lên Cloud ảo không?";
         
       setSimpleConfirm({
         isOpen: true,
@@ -170,8 +170,8 @@ export default function AdminPanel({
     }
 
     const confirmMsg = direction === "pull"
-      ? "Cảnh báo bảo mật tối cao:\nBạn đang yêu cầu tải và đồng bộ toàn bộ dữ liệu từ Cloud Firestore về máy chủ. Hành động này sẽ ghi đè và thay thế hoàn toàn bộ nhớ cache cục bộ.\n\nBạn có muốn tiếp tục?"
-      : "Cảnh báo bảo mật tối cao:\nBạn đang yêu cầu ghi đè toàn bộ dữ liệu hiện có lên Cloud Firestore. Toàn bộ các bộ sưu tập cũ trên Cloud sẽ bị xoá sạch trước khi tải dữ liệu mới lên.\n\nBạn có muốn tiếp tục?";
+      ? "Cảnh báo bảo mật tối cao:\nBạn đang yêu cầu tải và đồng bộ toàn bộ dữ liệu từ Supabase về máy chủ. Hành động này sẽ ghi đè và thay thế hoàn toàn bộ nhớ cache cục bộ.\n\nBạn có muốn tiếp tục?"
+      : "Cảnh báo bảo mật tối cao:\nBạn đang yêu cầu ghi đè toàn bộ dữ liệu hiện có lên Supabase. Toàn bộ các bản ghi cũ trên Cloud sẽ bị xoá sạch trước khi tải dữ liệu mới lên.\n\nBạn có muốn tiếp tục?";
     
     setSimpleConfirm({
       isOpen: true,
@@ -184,9 +184,9 @@ export default function AdminPanel({
         try {
           setSyncing(true);
           setSyncDirection(direction);
-          setSyncMessage(direction === "pull" ? "Đang kéo dữ liệu từ Firestore Cloud..." : "Đang tải dữ liệu cục bộ lên Cloud...");
+          setSyncMessage(direction === "pull" ? "Đang kéo dữ liệu từ Supabase..." : "Đang tải dữ liệu cục bộ lên Supabase...");
           
-          const res = await fetch(`/api/data/firestore-sync?user=${encodeURIComponent(currentUser?.fullName || "Admin")}&role=${currentUser?.role || "SUPER_ADMIN"}`, {
+          const res = await fetch(`/api/data/supabase-sync?user=${encodeURIComponent(currentUser?.fullName || "Admin")}&role=${currentUser?.role || "SUPER_ADMIN"}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ direction })
@@ -558,7 +558,7 @@ export default function AdminPanel({
           </div>
         )}
 
-        {/* TAB 3: CLOUD FIRESTORE MANAGEMENT & SYNCHRONIZATION */}
+        {/* TAB 3: SUPABASE MANAGEMENT & SYNCHRONIZATION */}
         {adminTab === "database" && (
           <div className="space-y-6">
             {/* Live Status Header Card */}
@@ -570,7 +570,7 @@ export default function AdminPanel({
                   </div>
                   <div>
                     <h3 className="text-sm font-extrabold text-slate-800 uppercase tracking-wide flex items-center gap-2">
-                      Trạng thái Firestore Cloud
+                      Trạng thái Supabase
                       {loadingStatus ? (
                         <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
                       ) : dbStatus?.connected ? (
@@ -629,9 +629,9 @@ export default function AdminPanel({
                   <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 text-[9px] font-bold uppercase border border-emerald-150">
                     <span className="w-1 h-1 rounded-full bg-emerald-500" /> Đồng bộ một chiều tải xuống (PULL)
                   </div>
-                  <h4 className="text-sm font-extrabold text-slate-800 uppercase tracking-wide">Tải dữ liệu từ Firestore Cloud</h4>
+                  <h4 className="text-sm font-extrabold text-slate-800 uppercase tracking-wide">Tải dữ liệu từ Supabase</h4>
                   <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                    Kéo bản sao lưu trữ trực tuyến mới nhất từ Google Firestore để ghi đè và đồng bộ cho bộ nhớ đệm máy chủ. Phù hợp khi bạn chuyển sang sử dụng thiết bị mới hoặc muốn khôi phục dữ liệu gốc.
+                    Kéo bản sao lưu trữ trực tuyến mới nhất từ Supabase để ghi đè và đồng bộ cho bộ nhớ đệm máy chủ. Phù hợp khi bạn chuyển sang sử dụng thiết bị mới hoặc muốn khôi phục dữ liệu gốc.
                   </p>
                 </div>
 
@@ -664,7 +664,7 @@ export default function AdminPanel({
                   </div>
                   <h4 className="text-sm font-extrabold text-slate-800 uppercase tracking-wide">Tải dữ liệu máy chủ lên Cloud</h4>
                   <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                    Đẩy bản ghi nhớ cục bộ hiện tại lên Google Firestore để lưu trữ đồng bộ. Hành động này sẽ xoá trắng dữ liệu Cloud cũ của bạn. Phù hợp khi bạn vừa hoàn thành chỉnh sửa dữ liệu offline quy mô lớn và muốn xuất bản đồng bộ.
+                    Đẩy bản ghi nhớ cục bộ hiện tại lên Supabase để lưu trữ đồng bộ. Hành động này sẽ xoá trắng dữ liệu Cloud cũ của bạn. Phù hợp khi bạn vừa hoàn thành chỉnh sửa dữ liệu offline quy mô lớn và muốn xuất bản đồng bộ.
                   </p>
                 </div>
 

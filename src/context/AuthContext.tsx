@@ -74,6 +74,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
+  // Keep server-side access control transparent to existing API calls. Only
+  // same-origin /api requests receive the Firebase ID token; external map and
+  // other third-party requests are left untouched.
+  useEffect(() => {
+    const originalFetch = window.fetch.bind(window);
+    const authenticatedFetch: typeof window.fetch = async (input, init) => {
+      const rawUrl = typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : input.toString();
+      const requestUrl = new URL(rawUrl, window.location.origin);
+      const isSameOriginApi = requestUrl.origin === window.location.origin
+        && requestUrl.pathname.startsWith('/api/');
+
+      const currentUser = auth?.currentUser;
+      if (!isSameOriginApi || !currentUser) return originalFetch(input, init);
+
+      const headers = new Headers(input instanceof Request ? input.headers : undefined);
+      if (init?.headers) {
+        new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+      }
+      if (!headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${await currentUser.getIdToken()}`);
+      }
+
+      if (input instanceof Request) {
+        return originalFetch(new Request(input, { ...init, headers }));
+      }
+      return originalFetch(input, { ...init, headers });
+    };
+
+    window.fetch = authenticatedFetch;
+    return () => {
+      if (window.fetch === authenticatedFetch) window.fetch = originalFetch;
+    };
+  }, []);
+
   const login = async () => {
     try {
       await signInWithPopup(auth, googleAuthProvider);

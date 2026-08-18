@@ -7,12 +7,11 @@ import express from "express";
 import * as XLSX from "xlsx";
 import fs from "fs";
 import path from "path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import nodemailer from "nodemailer";
-import { initializeApp } from "firebase/app";
-import { initializeFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc } from "firebase/firestore";
 import {
   Gender,
   ResidentStatus,
@@ -98,44 +97,50 @@ const suppressBenignFirestoreWarnings = () => {
 
 suppressBenignFirestoreWarnings();
 
-// Initialize Firebase on server side
-const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
-let firebaseApp: any = null;
-let firestoreDb: any = null;
-
-if (fs.existsSync(firebaseConfigPath)) {
-  try {
-    const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf8"));
-    const effectiveApiKey =
-      process.env.FIREBASE_API_KEY ||
-      process.env.VITE_FIREBASE_API_KEY ||
-      firebaseConfig.apiKey ||
-      "";
-    const activeFirebaseConfig = {
-      ...firebaseConfig,
-      apiKey: effectiveApiKey
-    };
-    firebaseApp = initializeApp(activeFirebaseConfig);
-    const dbId = firebaseConfig.firestoreDatabaseId || "ai-studio-qunldnctdnph-da7c9d3e-909a-4207-ae73-55f5dd117cea";
-    firestoreDb = initializeFirestore(
-      firebaseApp,
-      { experimentalForceLongPolling: true },
-      dbId
-    );
-    console.log("Firebase initialized successfully on server with DB:", dbId);
-  } catch (err) {
-    console.error("Failed to initialize Firebase on server:", err);
+// Supabase is accessed only from this server using the service-role key. Never
+// expose this key to the Vite client or add it to a VITE_* environment variable.
+const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/$/, "") || "";
+const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const supabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+const isVercel = Boolean(process.env.VERCEL);
+const FIREBASE_CONFIG_PATH = path.join(process.cwd(), "firebase-applet-config.json");
+const firebaseWebApiKey = (() => {
+  if (process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY) {
+    return process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "";
   }
-} else {
-  console.warn("firebase-applet-config.json not found. Firestore features will be disabled.");
-}
+  try {
+    return JSON.parse(fs.readFileSync(FIREBASE_CONFIG_PATH, "utf8")).apiKey || "";
+  } catch {
+    return "";
+  }
+})();
+const SUPER_ADMIN_EMAILS = new Set([
+  "bhttq3@gmail.com",
+  "tayninhdoimoi@gmail.com",
+  "nguyentanbinh3005@gmail.com",
+]);
+const pendingSupabaseWrites = new AsyncLocalStorage<Set<Promise<void>>>();
+const CLOUD_COLLECTIONS = [
+  "households",
+  "residents",
+  "changes",
+  "businesses",
+  "criteria",
+  "logs",
+  "allowedEmails",
+  "pendingRegistrations",
+  "documents",
+  "dismissedEmails",
+] as const;
 
 const PORT = Number.parseInt(process.env.PORT ?? "3000", 10) || 3000;
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE_PATH = path.join(DATA_DIR, "data_store.json");
 
-// Ensure data directory exists outside of Vite's watched source tree
-if (!fs.existsSync(DATA_DIR)) {
+// Vercel functions have an ephemeral read-only deployment filesystem. The JSON
+// file remains a local-development fallback; Supabase is the production store.
+if (!isVercel && !fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
@@ -558,106 +563,148 @@ async function loadDatabase() {
     saveDatabase();
   }
 
-  // Synchronize with Firestore Cloud Database asynchronously in background
-  loadFromFirestore().catch(err => {
-    console.error("Background Firestore load error:", err);
+  const cloudLoaded = await loadFromSupabase();
+  if (!cloudLoaded && supabaseConfigured) {
+    console.log("Supabase is empty. Seeding it from the current local database.");
+    await syncAllToSupabase();
+  }
+}
+
+function supabaseHeaders(extra: HeadersInit = {}): HeadersInit {
+  return {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    ...extra,
+  };
+}
+
+async function supabaseRequest(pathname: string, init: RequestInit = {}) {
+  if (!supabaseConfigured) {
+    throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
+  }
+
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${pathname}`, {
+    ...init,
+    headers: supabaseHeaders(init.headers),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(`Supabase request failed (${response.status}): ${details}`);
+  }
+  return response;
+}
+
+async function loadFromSupabase(): Promise<boolean> {
+  if (!supabaseConfigured) {
+    console.log("Supabase not configured; using the local JSON database.");
+    return false;
+  }
+
+  try {
+    const response = await supabaseRequest("app_records?select=collection_name,data");
+    const records = await response.json() as Array<{ collection_name: string; data: any }>;
+    if (!Array.isArray(records) || records.length === 0) return false;
+
+    const cloudData: Record<string, any[]> = Object.fromEntries(
+      CLOUD_COLLECTIONS.map((name) => [name, []]),
+    );
+    for (const record of records) {
+      if (!CLOUD_COLLECTIONS.includes(record.collection_name as typeof CLOUD_COLLECTIONS[number])) continue;
+      if (record.collection_name === "dismissedEmails") {
+        const email = record.data?.email || record.data?.id || record.data;
+        if (email) cloudData.dismissedEmails.push(email);
+      } else if (record.data && typeof record.data === "object") {
+        cloudData[record.collection_name].push(record.data);
+      }
+    }
+
+    db = { ...db, ...cloudData };
+    console.log(`Loaded ${records.length} records from Supabase.`);
+    return true;
+  } catch (err) {
+    console.error("Failed to load Supabase data; using the local JSON database:", err);
+    return false;
+  }
+}
+
+async function saveToSupabase(collectionName: string, item: any) {
+  if (!supabaseConfigured || !item || !item.id) return;
+  await supabaseRequest("app_records?on_conflict=collection_name,record_id", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify([{
+      collection_name: collectionName,
+      record_id: String(item.id),
+      data: item,
+    }]),
   });
 }
 
-async function loadFromFirestore() {
-  if (!firestoreDb) {
-    console.log("Firestore not configured, using local JSON database.");
-    return;
-  }
-  try {
-    console.log("Loading database from Firestore Cloud asynchronously...");
-    const collections = ["households", "residents", "changes", "businesses", "criteria", "logs", "allowedEmails", "pendingRegistrations", "documents", "dismissedEmails"];
-    
-    // Helper to load a collection with 5s timeout safety
-    const loadColl = async (name: string) => {
-      try {
-        const fetchPromise = getDocs(collection(firestoreDb, name));
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error(`Timeout fetching ${name}`)), 5000)
-        );
-        const snap: any = await Promise.race([fetchPromise, timeoutPromise]);
-        const list: any[] = [];
-        snap.forEach((docSnap: any) => {
-          list.push(docSnap.data());
-        });
-        console.log(`Firestore successfully loaded collection: ${name} (${list.length} items)`);
-        return list;
-      } catch (err: any) {
-        console.error(`Error loading collection '${name}' from Firestore:`, err?.message || err);
-        return [];
-      }
-    };
+async function deleteFromSupabase(collectionName: string, id: string) {
+  if (!supabaseConfigured || !id) return;
+  await supabaseRequest(
+    `app_records?collection_name=eq.${encodeURIComponent(collectionName)}&record_id=eq.${encodeURIComponent(id)}`,
+    { method: "DELETE", headers: { Prefer: "return=minimal" } },
+  );
+}
 
-    const households = await loadColl("households");
-    const residents = await loadColl("residents");
-    const changes = await loadColl("changes");
-    const businesses = await loadColl("businesses");
-    const criteria = await loadColl("criteria");
-    const logs = await loadColl("logs");
-    const allowedEmails = await loadColl("allowedEmails");
-    const pendingRegistrations = await loadColl("pendingRegistrations");
-    const documents = await loadColl("documents");
-    const dismissedEmails = await loadColl("dismissedEmails");
+async function syncAllToSupabase() {
+  if (!supabaseConfigured) return;
 
-    if (households.length > 0 || residents.length > 0 || changes.length > 0 || businesses.length > 0 || criteria.length > 0 || logs.length > 0 || allowedEmails.length > 0 || pendingRegistrations.length > 0 || documents.length > 0 || dismissedEmails.length > 0) {
-      db.households = households;
-      db.residents = residents;
-      db.changes = changes;
-      db.businesses = businesses;
-      if (criteria.length > 0) db.criteria = criteria as RuralCriteria[];
-      if (logs.length > 0) db.logs = logs as AuditLog[];
-      db.allowedEmails = allowedEmails as AllowedEmail[];
-      db.pendingRegistrations = pendingRegistrations as PendingRegistration[];
-      db.documents = documents as QuarterDocument[];
-      db.dismissedEmails = dismissedEmails.map(d => d.email || d.id).filter(Boolean) as string[];
-      
-      console.log("Successfully loaded database from Firestore Cloud!");
-      // Save local backup
-      saveDatabase();
-    } else {
-      console.log("Firestore database is empty. Uploading local seed/default data to Firestore Cloud...");
-      // Upload current database to Firestore Cloud to seed it
-      for (const key of collections) {
-        const items = (db as any)[key] || [];
-        for (const item of items) {
-          if (item && item.id) {
-            await setDoc(doc(firestoreDb, key, item.id), item);
-          }
-        }
-      }
-      console.log("Firestore Cloud successfully seeded with local database!");
+  for (const collectionName of CLOUD_COLLECTIONS) {
+    const items = (db as any)[collectionName] || [];
+    await supabaseRequest(`app_records?collection_name=eq.${encodeURIComponent(collectionName)}`, {
+      method: "DELETE",
+      headers: { Prefer: "return=minimal" },
+    });
+
+    const records = items
+      .map((item: any) => {
+        const data = collectionName === "dismissedEmails" && typeof item === "string"
+          ? { id: item, email: item }
+          : item;
+        if (!data?.id) return null;
+        return { collection_name: collectionName, record_id: String(data.id), data };
+      })
+      .filter(Boolean);
+
+    if (records.length > 0) {
+      await supabaseRequest("app_records?on_conflict=collection_name,record_id", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(records),
+      });
     }
-  } catch (err) {
-    console.error("Failed to load database from Firestore, falling back to local database:", err);
   }
 }
 
-async function saveToFirestore(collectionName: string, item: any) {
-  if (!firestoreDb || !item || !item.id) return;
-  try {
-    await setDoc(doc(firestoreDb, collectionName, item.id), item);
-    console.log(`Synced ${collectionName}/${item.id} to Firestore.`);
-  } catch (err) {
-    console.error(`Failed to sync ${collectionName}/${item.id} to Firestore:`, err);
-  }
+// Compatibility wrappers keep the existing route handlers small while the
+// backing store is now Supabase rather than Firestore.
+function trackSupabaseWrite(write: Promise<void>) {
+  const handledWrite = write.catch((err) => {
+    console.error("Supabase persistence failed:", err);
+  });
+  pendingSupabaseWrites.getStore()?.add(handledWrite);
+  return handledWrite;
 }
 
-async function deleteFromFirestore(collectionName: string, id: string) {
-  if (!firestoreDb || !id) return;
-  try {
-    await deleteDoc(doc(firestoreDb, collectionName, id));
-    console.log(`Deleted ${collectionName}/${id} from Firestore.`);
-  } catch (err) {
-    console.error(`Failed to delete ${collectionName}/${id} from Firestore:`, err);
-  }
+function saveToFirestore(collectionName: string, item: any) {
+  return trackSupabaseWrite(saveToSupabase(collectionName, item).catch((err) => {
+    console.error(`Failed to sync ${collectionName}/${item?.id} to Supabase:`, err);
+    throw err;
+  }));
+}
+
+function deleteFromFirestore(collectionName: string, id: string) {
+  return trackSupabaseWrite(deleteFromSupabase(collectionName, id).catch((err) => {
+    console.error(`Failed to delete ${collectionName}/${id} from Supabase:`, err);
+    throw err;
+  }));
 }
 
 function saveDatabase() {
+  if (isVercel) return;
   try {
     fs.writeFileSync(DATA_FILE_PATH, JSON.stringify(db, null, 2), "utf8");
     console.log("Database saved successfully to file:", DATA_FILE_PATH);
@@ -728,13 +775,114 @@ app.use(express.urlencoded({
 }));
 app.use(express.json({ limit: "50mb" }));
 
+let databaseInitialization: Promise<void> | null = null;
+function ensureDatabaseInitialized() {
+  if (!databaseInitialization) databaseInitialization = loadDatabase();
+  return databaseInitialization;
+}
+
+// Each serverless instance must load Supabase before serving its first request.
+app.use(async (_req, _res, next) => {
+  try {
+    await ensureDatabaseInitialized();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Existing handlers issue record writes without awaiting them. On a long-lived
+// local server that is harmless, but a serverless function may finish as soon
+// as it sends its response. Delay JSON responses until all writes issued by
+// this request have settled, so Supabase receives the mutation before Vercel
+// completes the invocation.
+app.use((req, res, next) => {
+  pendingSupabaseWrites.run(new Set<Promise<void>>(), () => {
+    const originalJson = res.json.bind(res);
+    let responseScheduled = false;
+
+    res.json = ((body: any) => {
+      if (responseScheduled) return res;
+      responseScheduled = true;
+      const writes = [...(pendingSupabaseWrites.getStore() || [])];
+      if (writes.length === 0) return originalJson(body);
+
+      void Promise.allSettled(writes).then(() => originalJson(body));
+      return res;
+    }) as typeof res.json;
+
+    next();
+  });
+});
+
+type VerifiedFirebaseUser = { uid: string; email: string; displayName?: string };
+
+async function verifyFirebaseIdToken(idToken: string): Promise<VerifiedFirebaseUser | null> {
+  if (!firebaseWebApiKey) return null;
+  const response = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(firebaseWebApiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  if (!response.ok) return null;
+
+  const payload = await response.json() as { users?: Array<{ localId?: string; email?: string; displayName?: string }> };
+  const user = payload.users?.[0];
+  if (!user?.localId || !user.email) return null;
+  return { uid: user.localId, email: user.email.toLowerCase(), displayName: user.displayName };
+}
+
+function isAuthorizedDataUser(email: string) {
+  const normalizedEmail = email.toLowerCase();
+  return SUPER_ADMIN_EMAILS.has(normalizedEmail)
+    || Boolean(db.allowedEmails?.some((entry) => entry.email.toLowerCase() === normalizedEmail));
+}
+
+// Production API access is enforced server-side. A Firebase ID token proves
+// identity and the existing allow-list determines whether that identity may
+// read or modify resident data.
+app.use(async (req, res, next) => {
+  if (!isVercel && process.env.NODE_ENV !== "production") return next();
+  if (!req.path.startsWith("/api/")) return next();
+
+  const publiclyReachable = new Set([
+    "/api/auth/google/url",
+    "/api/auth/google/mock-auth",
+    "/api/auth/callback",
+    "/api/auth/callback/",
+    "/api/auth/login",
+  ]);
+  if (publiclyReachable.has(req.path)) return next();
+
+  const authHeader = req.get("authorization") || "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
+  const firebaseUser = idToken ? await verifyFirebaseIdToken(idToken).catch(() => null) : null;
+  if (!firebaseUser) {
+    return res.status(401).json({ error: "Cần đăng nhập bằng tài khoản Firebase hợp lệ." });
+  }
+  (req as any).firebaseUser = firebaseUser;
+
+  const selfServiceRequest =
+    req.path === "/api/auth/log-google"
+    || req.path === "/api/auth/unauthorized-attempt"
+    || req.path === "/api/auth/session-check"
+    || (req.method === "POST" && req.path === "/api/pending-registrations");
+  if (selfServiceRequest || isAuthorizedDataUser(firebaseUser.email)) return next();
+
+  return res.status(403).json({ error: "Tài khoản chưa được cấp quyền truy cập dữ liệu." });
+});
+
 // ==================== GOOGLE OAUTH FLOW ====================
 
 // Endpoint to construct and return Google login URL
 app.get("/api/auth/google/url", (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-  const redirectUri = `${appUrl.replace(/\/$/, '')}/auth/callback`;
+  const redirectUri = `${appUrl.replace(/\/$/, '')}/api/auth/callback`;
   const role = req.query.role || "SUPER_ADMIN";
 
   if (!clientId || clientId === "MY_GOOGLE_CLIENT_ID" || clientId.trim() === "") {
@@ -854,7 +1002,7 @@ app.get("/api/auth/google/mock-auth", (req, res) => {
 });
 
 // OAuth Callback Route
-app.get(["/auth/callback", "/auth/callback/"], async (req, res) => {
+app.get(["/api/auth/callback", "/api/auth/callback/", "/auth/callback", "/auth/callback/"], async (req, res) => {
   const { code, error } = req.query;
 
   if (error) {
@@ -898,7 +1046,7 @@ app.get(["/auth/callback", "/auth/callback/"], async (req, res) => {
   } else if (code && clientId && clientSecret) {
     try {
       const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-      const redirectUri = `${appUrl.replace(/\/$/, '')}/auth/callback`;
+      const redirectUri = `${appUrl.replace(/\/$/, '')}/api/auth/callback`;
 
       const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
@@ -1054,14 +1202,20 @@ app.get(["/auth/callback", "/auth/callback/"], async (req, res) => {
 
 // Real Google sign-in logger for audit trail
 app.post("/api/auth/log-google", (req, res) => {
-  const { email, name, role } = req.body;
+  const { email: suppliedEmail, name: suppliedName, role } = req.body;
+  const firebaseUser = (req as any).firebaseUser as VerifiedFirebaseUser | undefined;
+  const email = firebaseUser?.email || suppliedEmail;
+  const name = firebaseUser?.displayName || suppliedName;
   addLog(name || email || "Cán bộ số", role || UserRole.COLLABORATOR, "Đăng nhập Google", `Đăng nhập Google Firebase thành công với email ${email}`);
   res.json({ success: true });
 });
 
 // Log unauthorized login attempt from client and simulate email alert
 app.post("/api/auth/unauthorized-attempt", (req, res) => {
-  const { email, displayName } = req.body;
+  const { email: suppliedEmail, displayName: suppliedDisplayName } = req.body;
+  const firebaseUser = (req as any).firebaseUser as VerifiedFirebaseUser | undefined;
+  const email = firebaseUser?.email || suppliedEmail;
+  const displayName = firebaseUser?.displayName || suppliedDisplayName;
   if (!email) {
     return res.status(400).json({ error: "Thiếu thông tin email" });
   }
@@ -1173,17 +1327,15 @@ app.get("/api/auth/session-check", (req, res) => {
   }
 
   const lowerEmail = (email as string).toLowerCase().trim();
+  const verifiedUser = (req as any).firebaseUser as VerifiedFirebaseUser | undefined;
+  if (verifiedUser && verifiedUser.email !== lowerEmail) {
+    return res.status(403).json({ error: "Không thể kiểm tra quyền của tài khoản khác." });
+  }
 
   if (!db.allowedEmails) db.allowedEmails = [];
   
   const allowedUser = db.allowedEmails.find(a => a.email.toLowerCase() === lowerEmail);
-  const superAdmins = [
-    "bhttq3@gmail.com",
-    "tayninhdoimoi@gmail.com",
-    "nguyentanbinh3005@gmail.com",
-  ];
-
-  const isSuperAdmin = superAdmins.includes(lowerEmail);
+  const isSuperAdmin = SUPER_ADMIN_EMAILS.has(lowerEmail);
 
   if (!isSuperAdmin && !allowedUser) {
     return res.json({ allowed: false });
@@ -1245,6 +1397,7 @@ app.post("/api/data/clear-all", async (req, res) => {
   addLog(username, userRole, "Xoá tất cả dữ liệu", "Xoá toàn bộ dữ liệu mẫu/ảo thành công để chuẩn bị nhập dữ liệu thực tế");
   saveDatabase();
 
+  /* Legacy Firestore clear implementation.
   // If Firestore Cloud is active, clear/reset the Cloud database as well
   if (firestoreDb) {
     try {
@@ -1274,10 +1427,13 @@ app.post("/api/data/clear-all", async (req, res) => {
   }
 
   res.json({ success: true, message: "Đã xoá toàn bộ dữ liệu mẫu. Hệ thống trống sẵn sàng cho nhập liệu thực tế." });
+*/
+  await syncAllToSupabase();
+  res.json({ success: true, message: "Dữ liệu đã được xoá và đồng bộ với Supabase." });
 });
 
 // POST restore database backup (JSON or parsed Excel objects)
-app.post("/api/data/restore", (req, res) => {
+app.post("/api/data/restore", async (req, res) => {
   const username = (req.query.user as string) || "Hệ thống";
   const userRole = (req.query.role as UserRole) || UserRole.SUPER_ADMIN;
   const backupData = req.body;
@@ -1295,16 +1451,7 @@ app.post("/api/data/restore", (req, res) => {
   db.logs = Array.isArray(backupData.logs) ? backupData.logs : db.logs || [];
   db.documents = Array.isArray(backupData.documents) ? backupData.documents : db.documents || [];
 
-  // If Firestore is active, sync everything in the background
-  if (firestoreDb) {
-    console.log("Restoring backup: uploading all collections to Firestore...");
-    db.households.forEach(h => saveToFirestore("households", h));
-    db.residents.forEach(r => saveToFirestore("residents", r));
-    db.businesses.forEach(b => saveToFirestore("businesses", b));
-    db.changes.forEach(c => saveToFirestore("changes", c));
-    db.criteria.forEach(cr => saveToFirestore("criteria", cr));
-    db.documents.forEach(d => saveToFirestore("documents", d));
-  }
+  await syncAllToSupabase();
 
   addLog(username, userRole, "Phục hồi dữ liệu", `Khôi phục toàn bộ hệ thống từ file sao lưu (${db.households.length} hộ, ${db.residents.length} nhân khẩu, ${db.documents.length} tài liệu)`);
   saveDatabase();
@@ -1757,6 +1904,7 @@ app.post("/api/data/generate-mock", (req, res) => {
   });
 });
 
+/* Legacy Firestore status and manual-sync routes, retained only for migration reference.
 // GET Firestore Cloud status and item counts
 app.get("/api/data/firestore-status", (req, res) => {
   try {
@@ -1899,6 +2047,81 @@ app.post("/api/data/firestore-sync", async (req, res) => {
   } catch (err: any) {
     console.error("Manual Firestore synchronization failed:", err);
     res.status(500).json({ error: "Thao tác đồng bộ thất bại: " + err.message });
+  }
+});
+
+*/
+
+// GET Supabase connection status and data counts. The service-role key is never
+// returned to the client.
+app.get("/api/data/supabase-status", (req, res) => {
+  const projectRef = supabaseConfigured
+    ? new URL(SUPABASE_URL).hostname.split(".")[0]
+    : "Not configured";
+
+  res.json({
+    connected: supabaseConfigured,
+    databaseId: "app_records",
+    projectId: projectRef,
+    localCounts: {
+      households: db.households?.length || 0,
+      residents: db.residents?.length || 0,
+      changes: db.changes?.length || 0,
+      businesses: db.businesses?.length || 0,
+      criteria: db.criteria?.length || 0,
+      logs: db.logs?.length || 0,
+      allowedEmails: db.allowedEmails?.length || 0,
+      pendingRegistrations: db.pendingRegistrations?.length || 0,
+      documents: db.documents?.length || 0,
+    },
+  });
+});
+
+// POST Synchronize the in-memory data with Supabase (Pull or Push).
+app.post("/api/data/supabase-sync", async (req, res) => {
+  const direction = req.body.direction || "pull";
+  const username = (req.query.user as string) || "Hệ thống";
+  const userRole = (req.query.role as UserRole) || UserRole.SUPER_ADMIN;
+
+  if (!supabaseConfigured) {
+    return res.status(400).json({ error: "Supabase chưa được cấu hình." });
+  }
+
+  try {
+    if (direction === "pull") {
+      const loaded = await loadFromSupabase();
+      if (!loaded) {
+        return res.status(404).json({ error: "Cơ sở dữ liệu Supabase hiện đang trống." });
+      }
+      addLog(username, userRole, "Đồng bộ (Tải từ Supabase)", "Đã tải dữ liệu mới nhất từ Supabase.");
+      saveDatabase();
+    } else if (direction === "push") {
+      await syncAllToSupabase();
+      addLog(username, userRole, "Đồng bộ (Đẩy lên Supabase)", "Đã đẩy toàn bộ dữ liệu hiện tại lên Supabase.");
+    } else {
+      return res.status(400).json({ error: "Hướng đồng bộ (direction) không hợp lệ." });
+    }
+
+    return res.json({
+      success: true,
+      message: direction === "pull"
+        ? "Đồng bộ tải dữ liệu từ Supabase thành công!"
+        : "Đồng bộ đẩy dữ liệu lên Supabase thành công!",
+      localCounts: {
+        households: db.households.length,
+        residents: db.residents.length,
+        changes: db.changes.length,
+        businesses: db.businesses.length,
+        criteria: db.criteria.length,
+        logs: db.logs.length,
+        allowedEmails: db.allowedEmails.length,
+        pendingRegistrations: db.pendingRegistrations.length,
+        documents: db.documents.length,
+      },
+    });
+  } catch (err: any) {
+    console.error("Manual Supabase synchronization failed:", err);
+    return res.status(500).json({ error: "Thao tác đồng bộ thất bại: " + err.message });
   }
 });
 
@@ -3305,9 +3528,8 @@ app.delete("/api/documents/:id", (req, res) => {
 
 // Start server and mount Vite
 async function startServer() {
-  // Load database and sync with Firestore before starting
-  console.log("Initializing database and syncing with Firestore...");
-  await loadDatabase();
+  console.log("Initializing database...");
+  await ensureDatabaseInitialized();
 
   // Explicitly serve public assets (PWA manifest, SW, icons)
   app.use(express.static(path.join(process.cwd(), "public")));
@@ -3338,4 +3560,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!isVercel) {
+  void startServer();
+}
+
+export default app;
