@@ -1,4 +1,4 @@
-import app from "../server.js";
+import app from "../server";
 
 // vercel.json rewrites /api/* to this single Function and passes the original
 // route in `path`. Restore it so the existing Express routes stay unchanged.
