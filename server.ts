@@ -959,6 +959,7 @@ function getRequiredServerAction(req: express.Request): ServerAction | null {
   const administrativeDataPaths = new Set([
     "/api/data/clear-all",
     "/api/data/restore",
+    "/api/data/sync-demographics",
     "/api/data/generate-mock",
     "/api/data/supabase-sync",
   ]);
@@ -1584,6 +1585,67 @@ app.post("/api/data/clear-all", async (req, res) => {
 */
   await syncAllToSupabase();
   res.json({ success: true, message: "Dữ liệu đã được xoá và đồng bộ với Supabase." });
+});
+
+// POST synchronize only households and residents from a validated backup.
+// This is intentionally narrower than a full restore: business records,
+// documents, access control, logs and other collections are left untouched.
+app.post("/api/data/sync-demographics", async (req, res) => {
+  const username = (req.query.user as string) || "Hệ thống";
+  const userRole = (req.query.role as UserRole) || UserRole.SUPER_ADMIN;
+  const source = req.body;
+  const households = source?.households;
+  const residents = source?.residents;
+
+  if (!Array.isArray(households) || !Array.isArray(residents) || households.length === 0 || residents.length === 0) {
+    return res.status(400).json({ error: "Tệp đồng bộ phải có ít nhất một hộ dân và một nhân khẩu." });
+  }
+
+  const householdIds = new Set<string>();
+  for (const household of households) {
+    const id = typeof household?.id === "string" ? household.id.trim() : "";
+    if (!id || householdIds.has(id)) {
+      return res.status(400).json({ error: "Dữ liệu hộ dân có mã trống hoặc trùng lặp." });
+    }
+    householdIds.add(id);
+  }
+
+  const residentIds = new Set<string>();
+  for (const resident of residents) {
+    const id = typeof resident?.id === "string" ? resident.id.trim() : "";
+    const householdId = typeof resident?.householdId === "string" ? resident.householdId.trim() : "";
+    if (!id || residentIds.has(id)) {
+      return res.status(400).json({ error: "Dữ liệu nhân khẩu có mã trống hoặc trùng lặp." });
+    }
+    if (!householdId || !householdIds.has(householdId)) {
+      return res.status(400).json({ error: "Có nhân khẩu không thuộc hộ dân hợp lệ; đồng bộ đã được hủy để bảo toàn dữ liệu." });
+    }
+    residentIds.add(id);
+  }
+
+  try {
+    // Upsert completes before stale records are removed. If the resident sync
+    // fails, the request reports an error and a retry is safe.
+    await syncSupabaseCollection("households", households);
+    await syncSupabaseCollection("residents", residents);
+    db.households = households;
+    db.residents = residents;
+
+    if (supabaseConfigured) {
+      const cloudLoaded = await loadFromSupabase();
+      if (!cloudLoaded || db.households.length !== households.length || db.residents.length !== residents.length) {
+        throw new Error("Supabase verification did not match the uploaded demographic data.");
+      }
+    } else {
+      saveDatabase();
+    }
+
+    addLog(username, userRole, "Đồng bộ hộ dân và nhân khẩu", `Đồng bộ ${households.length} hộ dân và ${residents.length} nhân khẩu lên Supabase.`);
+    return res.json({ success: true, householdsCount: households.length, residentsCount: residents.length });
+  } catch (err) {
+    console.error("Demographic synchronization failed:", err);
+    return res.status(500).json({ error: "Chưa thể xác minh dữ liệu hộ dân và nhân khẩu trên Supabase. Vui lòng thử lại." });
+  }
 });
 
 // POST restore database backup (JSON or parsed Excel objects)

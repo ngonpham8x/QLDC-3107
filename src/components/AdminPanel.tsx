@@ -46,8 +46,9 @@ export default function AdminPanel({
   const [syncMessage, setSyncMessage] = useState("");
   const [viewingSchema, setViewingSchema] = useState<string | null>(null);
 
-  // File upload ref for restore
+  // File upload refs for full restore and demographic-only synchronization.
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const demographicsFileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Simple confirmation modal state
   const [simpleConfirm, setSimpleConfirm] = useState<{
@@ -261,6 +262,57 @@ export default function AdminPanel({
         }
       });
     }
+  };
+
+  const handleDemographicsFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSimpleConfirm({
+      isOpen: true,
+      title: "Đồng bộ Hộ dân và Nhân khẩu",
+      message: `Đồng bộ riêng Hộ dân và Nhân khẩu từ tệp "${file.name}" lên Supabase? Dữ liệu cán bộ, tài liệu, hộ kinh doanh và các mục khác không bị thay đổi.`,
+      confirmText: "Đồng bộ lên Supabase",
+      cancelText: "Hủy bỏ",
+      onConfirm: async () => {
+        setSimpleConfirm(null);
+        try {
+          setSyncing(true);
+          setSyncMessage("Đang xác minh và đồng bộ hộ dân, nhân khẩu lên Supabase...");
+          const backup = JSON.parse(await file.text());
+          const res = await fetch(`/api/data/sync-demographics?user=${encodeURIComponent(currentUser?.fullName || "Admin")}&role=${currentUser?.role || "SUPER_ADMIN"}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(backup),
+          });
+          const result = await res.json();
+          if (!res.ok || !result.success) {
+            throw new Error(result.error || "Không thể đồng bộ dữ liệu dân cư.");
+          }
+
+          await onRefreshData();
+          fetchDbStatus();
+          setSyncMessage("Đồng bộ hộ dân và nhân khẩu thành công.");
+          setLocalAlert({
+            isOpen: true,
+            title: "Đồng bộ thành công",
+            message: `Đã đồng bộ ${result.householdsCount} hộ dân và ${result.residentsCount} nhân khẩu lên Supabase. Các dữ liệu khác không thay đổi.`,
+            type: "success",
+          });
+        } catch (err: any) {
+          setSyncMessage(`Đồng bộ thất bại: ${err.message || "Lỗi không xác định"}`);
+          setLocalAlert({
+            isOpen: true,
+            title: "Không thể đồng bộ",
+            message: err.message || "Không thể đọc hoặc xác minh tệp dữ liệu.",
+            type: "error",
+          });
+        } finally {
+          setSyncing(false);
+          if (demographicsFileInputRef.current) demographicsFileInputRef.current.value = "";
+        }
+      },
+    });
   };
 
   const handleTriggerFileInput = () => {
@@ -837,7 +889,7 @@ export default function AdminPanel({
                 Hệ thống hỗ trợ cơ chế sao lưu toàn bộ cơ sở dữ liệu bao gồm: hộ gia đình, nhân khẩu, biến động, hộ kinh doanh và nhật ký hệ thống ra một tệp JSON tiêu chuẩn để lưu trữ độc lập hoặc nhập ngược lại khi cần thiết.
               </p>
 
-              <div className="pt-2 grid grid-cols-2 gap-3">
+              <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <button
                   onClick={onExportBackup}
                   className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
@@ -851,6 +903,15 @@ export default function AdminPanel({
                 >
                   <Upload className="w-4 h-4" /> Khôi phục dữ liệu
                 </button>
+
+                <button
+                  onClick={() => demographicsFileInputRef.current?.click()}
+                  disabled={syncing}
+                  className="flex items-center justify-center gap-2 px-4 py-3 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+                  title="Chỉ đồng bộ Hộ dân và Nhân khẩu"
+                >
+                  <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} /> Đồng bộ dân cư
+                </button>
               </div>
 
               <input
@@ -858,6 +919,13 @@ export default function AdminPanel({
                 ref={fileInputRef}
                 onChange={handleFileChange}
                 accept=".json"
+                className="hidden"
+              />
+              <input
+                type="file"
+                ref={demographicsFileInputRef}
+                onChange={handleDemographicsFileChange}
+                accept=".json,application/json"
                 className="hidden"
               />
             </div>
