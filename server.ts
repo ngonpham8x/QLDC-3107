@@ -621,15 +621,40 @@ async function deleteFromSupabase(collectionName: string, id: string) {
   );
 }
 
+async function loadSupabaseRecordIds(collectionName: string): Promise<string[]> {
+  const pageSize = 1_000;
+  const recordIds: string[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const response = await supabaseRequest(
+      `app_records?select=record_id&collection_name=eq.${encodeURIComponent(collectionName)}&order=record_id.asc&limit=${pageSize}&offset=${offset}`,
+    );
+    const page = await response.json() as Array<{ record_id: string }>;
+    if (!Array.isArray(page)) throw new Error("Supabase returned an invalid record-id response.");
+    recordIds.push(...page.map((record) => String(record.record_id)));
+    if (page.length < pageSize) break;
+  }
+  return recordIds;
+}
+
+async function deleteSupabaseRecords(collectionName: string, recordIds: string[]) {
+  for (let offset = 0; offset < recordIds.length; offset += 100) {
+    const quotedIds = recordIds
+      .slice(offset, offset + 100)
+      .map((id) => JSON.stringify(String(id)))
+      .join(",");
+    await supabaseRequest(
+      `app_records?collection_name=eq.${encodeURIComponent(collectionName)}&record_id=${encodeURIComponent(`in.(${quotedIds})`)}`,
+      { method: "DELETE", headers: { Prefer: "return=minimal" } },
+    );
+  }
+}
+
 async function syncAllToSupabase() {
   if (!supabaseConfigured) return;
 
   for (const collectionName of CLOUD_COLLECTIONS) {
     const items = (db as any)[collectionName] || [];
-    await supabaseRequest(`app_records?collection_name=eq.${encodeURIComponent(collectionName)}`, {
-      method: "DELETE",
-      headers: { Prefer: "return=minimal" },
-    });
+    const existingRecordIds = await loadSupabaseRecordIds(collectionName);
 
     const records = items
       .map((item: any) => {
@@ -648,6 +673,13 @@ async function syncAllToSupabase() {
         body: JSON.stringify(records.slice(offset, offset + 500)),
       });
     }
+
+    // Never empty a collection before its replacement data is durable. Other
+    // Vercel instances can keep serving the previous complete snapshot until
+    // stale records are removed after the successful upsert.
+    const currentRecordIds = new Set(records.map((record: any) => String(record.record_id)));
+    const staleRecordIds = existingRecordIds.filter((id) => !currentRecordIds.has(id));
+    await deleteSupabaseRecords(collectionName, staleRecordIds);
   }
 }
 
@@ -747,8 +779,15 @@ app.use(express.urlencoded({
 }));
 
 let databaseInitialization: Promise<void> | null = null;
+let lastDatabaseRefreshAt = 0;
 function ensureDatabaseInitialized() {
-  if (!databaseInitialization) databaseInitialization = loadDatabase();
+  // Serverless instances are reused. Refresh their cache frequently so an
+  // instance created before a restore cannot continue serving stale arrays.
+  const shouldRefresh = isVercel && Date.now() - lastDatabaseRefreshAt > 1_000;
+  if (!databaseInitialization || shouldRefresh) {
+    lastDatabaseRefreshAt = Date.now();
+    databaseInitialization = loadDatabase();
+  }
   return databaseInitialization;
 }
 
