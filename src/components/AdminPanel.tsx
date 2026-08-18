@@ -171,7 +171,7 @@ export default function AdminPanel({
 
     const confirmMsg = direction === "pull"
       ? "Cảnh báo bảo mật tối cao:\nBạn đang yêu cầu tải và đồng bộ toàn bộ dữ liệu từ Supabase về máy chủ. Hành động này sẽ ghi đè và thay thế hoàn toàn bộ nhớ cache cục bộ.\n\nBạn có muốn tiếp tục?"
-      : "Cảnh báo bảo mật tối cao:\nBạn đang yêu cầu ghi đè toàn bộ dữ liệu hiện có lên Supabase. Toàn bộ các bản ghi cũ trên Cloud sẽ bị xoá sạch trước khi tải dữ liệu mới lên.\n\nBạn có muốn tiếp tục?";
+      : "Cảnh báo bảo mật tối cao:\nBạn đang yêu cầu đồng bộ dữ liệu hiện có lên Supabase. Bản ghi mới sẽ được lưu trước; chỉ các bản ghi không còn ở máy chủ mới bị loại bỏ sau khi lưu thành công.\n\nBạn có muốn tiếp tục?";
     
     setSimpleConfirm({
       isOpen: true,
@@ -664,7 +664,7 @@ export default function AdminPanel({
                   </div>
                   <h4 className="text-sm font-extrabold text-slate-800 uppercase tracking-wide">Tải dữ liệu máy chủ lên Cloud</h4>
                   <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                    Đẩy bản ghi nhớ cục bộ hiện tại lên Supabase để lưu trữ đồng bộ. Hành động này sẽ xoá trắng dữ liệu Cloud cũ của bạn. Phù hợp khi bạn vừa hoàn thành chỉnh sửa dữ liệu offline quy mô lớn và muốn xuất bản đồng bộ.
+                    Đẩy bản ghi nhớ cục bộ hiện tại lên Supabase để lưu trữ đồng bộ. Hệ thống lưu bản ghi mới trước, rồi mới loại bỏ bản ghi Cloud không còn tồn tại ở máy chủ. Phù hợp khi bạn vừa hoàn thành chỉnh sửa dữ liệu offline quy mô lớn và muốn xuất bản đồng bộ.
                   </p>
                 </div>
 

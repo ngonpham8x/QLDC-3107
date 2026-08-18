@@ -52,6 +52,34 @@ async function request(pathname, init = {}) {
     headers: { ...headers, ...init.headers },
   });
   if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
+  return response;
+}
+
+async function loadRecordIds(collectionName) {
+  const pageSize = 1_000;
+  const recordIds = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const response = await request(
+      `app_records?select=record_id&collection_name=eq.${encodeURIComponent(collectionName)}&order=record_id.asc&limit=${pageSize}&offset=${offset}`,
+    );
+    const records = await response.json();
+    if (!Array.isArray(records)) throw new Error(`Invalid Supabase response for ${collectionName}.`);
+    recordIds.push(...records.map((record) => String(record.record_id)));
+    if (records.length < pageSize) return recordIds;
+  }
+}
+
+async function deleteRecords(collectionName, recordIds) {
+  for (let offset = 0; offset < recordIds.length; offset += 100) {
+    const quotedIds = recordIds
+      .slice(offset, offset + 100)
+      .map((id) => JSON.stringify(String(id)))
+      .join(",");
+    await request(
+      `app_records?collection_name=eq.${encodeURIComponent(collectionName)}&record_id=${encodeURIComponent(`in.(${quotedIds})`)}`,
+      { method: "DELETE", headers: { Prefer: "return=minimal" } },
+    );
+  }
 }
 
 for (const collectionName of collections) {
@@ -62,6 +90,7 @@ for (const collectionName of collections) {
     continue;
   }
 
+  const existingRecordIds = await loadRecordIds(collectionName);
   const items = Array.isArray(db[collectionName]) ? db[collectionName] : [];
   const records = items.map((item) => {
     const data = collectionName === "dismissedEmails" && typeof item === "string"
@@ -71,11 +100,6 @@ for (const collectionName of collections) {
     return { collection_name: collectionName, record_id: String(data.id), data };
   }).filter(Boolean);
 
-  await request(`app_records?collection_name=eq.${encodeURIComponent(collectionName)}`, {
-    method: "DELETE",
-    headers: { Prefer: "return=minimal" },
-  });
-
   for (let offset = 0; offset < records.length; offset += 500) {
     await request("app_records?on_conflict=collection_name,record_id", {
       method: "POST",
@@ -83,6 +107,13 @@ for (const collectionName of collections) {
       body: JSON.stringify(records.slice(offset, offset + 500)),
     });
   }
+
+  // Do not create an empty-cloud window: new records are durable before only
+  // stale records are removed. This also prevents serverless instances from
+  // caching an incomplete collection during a migration.
+  const currentRecordIds = new Set(records.map((record) => String(record.record_id)));
+  const staleRecordIds = existingRecordIds.filter((id) => !currentRecordIds.has(id));
+  await deleteRecords(collectionName, staleRecordIds);
   console.log(`${collectionName}: ${records.length} records migrated`);
 }
 

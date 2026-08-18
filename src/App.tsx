@@ -8,7 +8,7 @@ import {
   Users, Home, Calendar, Award, Building, Sparkles, FileText, 
   Activity, User, LogOut, ShieldCheck, KeyRound, Smartphone, Check, HelpCircle,
   RefreshCw, AlertTriangle, Download, Wifi, WifiOff, Menu, ChevronLeft, ChevronRight, ChevronUp, ChevronDown,
-  Eye, EyeOff, Bot, ZoomIn, ZoomOut, Sun, Moon, ArrowRight, Clock
+  Eye, EyeOff, Bot, Sun, Moon, ArrowRight, Clock
 } from "lucide-react";
 import { Household, Resident, BusinessHousehold, RuralCriteria, DemographicsChange, DemographicsChangeType, User as UserType, UserRole, AllowedEmail, canUserPerformAction } from "./types";
 
@@ -513,15 +513,6 @@ const checkingAccessRef = useRef(false);
     }
   }, [currentUser]);
 
-  // Zoom scaling state
-  const [zoomScale, setZoomScale] = useState<number>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("appZoomScale");
-      return saved ? parseInt(saved, 10) : 100;
-    }
-    return 100;
-  });
-
   // Theme state: day (light) and night (dark)
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window !== "undefined") {
@@ -537,27 +528,6 @@ const checkingAccessRef = useRef(false);
       localStorage.setItem("appTheme", next);
       return next;
     });
-  };
-
-  const handleZoomIn = () => {
-    setZoomScale(prev => {
-      const next = Math.min(prev + 10, 155);
-      localStorage.setItem("appZoomScale", next.toString());
-      return next;
-    });
-  };
-
-  const handleZoomOut = () => {
-    setZoomScale(prev => {
-      const next = Math.max(prev - 10, 75);
-      localStorage.setItem("appZoomScale", next.toString());
-      return next;
-    });
-  };
-
-  const handleZoomReset = () => {
-    setZoomScale(100);
-    localStorage.setItem("appZoomScale", "100");
   };
 
   // Sync state helpers
@@ -3364,10 +3334,7 @@ if (authLoading || checkingAccess) {
           }
 
           return (
-            <div 
-              className="flex-1 flex flex-col overflow-hidden h-full bg-slate-950 font-sans text-slate-250"
-              style={{ zoom: `${zoomScale}%` }}
-            >
+            <div className="flex-1 flex flex-col overflow-hidden h-full bg-slate-950 font-sans text-slate-250">
               {/* Specialized Admin top control header */}
               <header className="h-16 bg-slate-900 border-b border-slate-850 flex items-center justify-between px-6 shrink-0 select-none">
                 <div className="flex items-center gap-3">
@@ -3412,10 +3379,7 @@ if (authLoading || checkingAccess) {
 
         // Authenticated Dashboard Layout
         return (
-          <div 
-            className={`flex-1 flex flex-col overflow-hidden h-full bg-white font-sans text-[#1E293B] transition-colors duration-200 ${theme === "dark" ? "dark-theme-custom" : ""}`}
-            style={{ zoom: `${zoomScale}%` }}
-          >
+          <div className={`flex-1 flex flex-col overflow-hidden h-full bg-white font-sans text-[#1E293B] transition-colors duration-200 ${theme === "dark" ? "dark-theme-custom" : ""}`}>
             <div className="flex-1 flex overflow-hidden relative">
             
             {/* Backdrop overlay for mobile drawer has been removed per user request to prevent dimming and blocking page actions */}
@@ -3569,34 +3533,6 @@ if (authLoading || checkingAccess) {
                       <span className="font-bold text-[11px] text-slate-800 dark:text-slate-100 whitespace-nowrap">{formatVietnameseDateTime(currentTime).dateStr}</span>
                       <span className="text-slate-300 dark:text-slate-600 font-normal">|</span>
                       <span className="font-mono font-extrabold text-[12px] text-emerald-600 dark:text-emerald-400 tracking-wider whitespace-nowrap">{formatVietnameseDateTime(currentTime).timeStr}</span>
-                    </div>
-
-                    {/* Zoom / View Scale Widget (Sửa lỗi màn hình nhỏ bị cắt góc) */}
-                    <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-xl p-1 shadow-xs">
-                      <button
-                        type="button"
-                        onClick={handleZoomOut}
-                        className="p-1 hover:bg-slate-200 text-slate-600 hover:text-slate-900 rounded-lg transition-colors cursor-pointer flex items-center justify-center"
-                        title="Thu nhỏ giao diện (-10%)"
-                      >
-                        <ZoomOut className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleZoomReset}
-                        className="px-2 py-0.5 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded-lg text-[10px] font-black transition-colors cursor-pointer font-mono"
-                        title="Đặt lại tỉ lệ 100%"
-                      >
-                        {zoomScale}%
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleZoomIn}
-                        className="p-1 hover:bg-slate-200 text-slate-600 hover:text-slate-900 rounded-lg transition-colors cursor-pointer flex items-center justify-center"
-                        title="Phóng to giao diện (+10%)"
-                      >
-                        <ZoomIn className="w-3.5 h-3.5" />
-                      </button>
                     </div>
 
                     <button
