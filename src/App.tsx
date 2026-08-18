@@ -3628,11 +3628,11 @@ if (authLoading || checkingAccess) {
                     {currentUser.role === UserRole.SUPER_ADMIN && (
                       <button
                         onClick={() => navigateTo("/admin")}
-                        className="flex items-center gap-2 px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white border border-slate-700 hover:border-slate-600 rounded-xl text-xs font-bold transition-all duration-150 active:scale-95 cursor-pointer shadow-xs"
+                        className="w-9 h-9 flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-white border border-slate-700 hover:border-slate-600 rounded-xl transition-all duration-150 active:scale-95 cursor-pointer shadow-xs"
                         title="Mở trang quản trị trung ương"
+                        aria-label="Mở trang quản trị trung ương"
                       >
                         <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400" />
-                        <span>Vào trang quản trị</span>
                       </button>
                     )}
 
@@ -3745,11 +3745,11 @@ if (authLoading || checkingAccess) {
                         {currentUser.role === UserRole.SUPER_ADMIN && (
                           <button
                             onClick={() => navigateTo("/admin")}
-                            className="flex items-center gap-1 px-2 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 rounded-lg text-[9px] font-extrabold text-emerald-400 cursor-pointer shrink-0 transition-all active:scale-95"
+                            className="w-7 h-7 flex items-center justify-center bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 rounded-lg text-emerald-400 cursor-pointer shrink-0 transition-all active:scale-95"
                             title="Mở trang quản trị trung ương"
+                            aria-label="Mở trang quản trị trung ương"
                           >
                             <ShieldCheck className="w-3 h-3" />
-                            <span>Quản trị</span>
                           </button>
                         )}
 
