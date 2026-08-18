@@ -8,7 +8,6 @@ import * as XLSX from "xlsx";
 import fs from "fs";
 import path from "path";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import nodemailer from "nodemailer";
@@ -34,7 +33,7 @@ import {
   AllowedEmail,
   PendingRegistration,
   QuarterDocument
-} from "./src/types.js";
+} from "./src/types";
 
 dotenv.config();
 const otpStore = new Map<string, { code: string; expiresAt: number }>();
@@ -3538,6 +3537,7 @@ async function startServer() {
 
   // Vite dev middleware or static serving
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa"
