@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { UserRole, AllowedEmail, PendingRegistration, CollaboratorPermissions } from "../types";
 import { 
   ShieldCheck, 
@@ -17,8 +17,7 @@ import {
   HelpCircle,
   Edit,
   CheckSquare,
-  Square,
-  Upload
+  Square
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
@@ -57,7 +56,6 @@ export default function AllowedEmailsView() {
     type: "revoke" | "reject";
     id?: string;
   } | null>(null);
-  const accessImportInputRef = useRef<HTMLInputElement>(null);
 
   const handleStartEditRole = (allowed: AllowedEmail) => {
     setEditingEmail(allowed);
@@ -166,46 +164,6 @@ export default function AllowedEmailsView() {
     if (authLoading || !token) return;
     void fetchData();
   }, [authLoading, token, fetchData]);
-
-  const handleImportApprovedOfficers = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const backup = JSON.parse(String(reader.result || ""));
-        if (!Array.isArray(backup.allowedEmails)) {
-          throw new Error("Tệp này không chứa danh sách cán bộ đã duyệt.");
-        }
-        if (!window.confirm("Khôi phục danh sách cán bộ đã duyệt từ tệp này? Chỉ danh sách quyền bị thay thế; dữ liệu hộ dân và nhân khẩu không bị ảnh hưởng.")) {
-          return;
-        }
-
-        setLoading(true);
-        setError("");
-        setSuccess("");
-        const res = await fetch("/api/allowed-emails/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ allowedEmails: backup.allowedEmails }),
-        });
-        const result = await res.json();
-        if (!res.ok) throw new Error(result.error || "Không thể khôi phục danh sách cán bộ.");
-
-        const restored = Array.isArray(result.allowedEmails) ? result.allowedEmails : [];
-        setAllowedEmails(restored);
-        localStorage.setItem("cache_allowedEmails", JSON.stringify(restored));
-        setSuccess(`Đã khôi phục ${restored.length} cán bộ đã duyệt. Dữ liệu dân cư không thay đổi.`);
-      } catch (err: any) {
-        setError(err.message || "Không thể đọc tệp khôi phục quyền.");
-      } finally {
-        setLoading(false);
-        if (accessImportInputRef.current) accessImportInputRef.current.value = "";
-      }
-    };
-    reader.readAsText(file);
-  };
 
   const handleQuickApprove = (email: string) => {
     setNewEmail(email);
@@ -528,28 +486,6 @@ export default function AllowedEmailsView() {
             </button>
           </form>
 
-          <div className="border-t border-slate-100 pt-4 space-y-2">
-            <input
-              ref={accessImportInputRef}
-              type="file"
-              accept="application/json,.json"
-              className="hidden"
-              onChange={handleImportApprovedOfficers}
-            />
-            <button
-              type="button"
-              onClick={() => accessImportInputRef.current?.click()}
-              disabled={loading}
-              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 font-bold text-[11px] rounded-xl border border-slate-200 transition-all flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <Upload className="w-4 h-4" />
-              Khôi phục danh sách cán bộ
-            </button>
-            <p className="text-[10px] text-slate-500 leading-relaxed">
-              Chỉ nhập danh sách cán bộ đã duyệt từ tệp JSON; không thay đổi hộ dân hoặc nhân khẩu.
-            </p>
-          </div>
-
           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 text-[10px] text-slate-500 leading-relaxed space-y-2">
             <h4 className="font-bold text-slate-700 uppercase tracking-wide">Quy định bảo mật cán bộ:</h4>
             <p>1. Chỉ cấp quyền cho email Google chính thức của cán bộ, người được phép tham gia quản lý cư trú.</p>
@@ -635,7 +571,9 @@ export default function AllowedEmailsView() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {allowedEmails.map((allowed) => (
+                    {allowedEmails.map((allowed) => {
+                      const isSystemOfficer = allowed.id.startsWith("SYSTEM-");
+                      return (
                       <tr key={allowed.id} className="hover:bg-slate-50/40 transition-colors font-medium">
                         <td className="py-3.5 px-4">
                           <div className="flex items-center gap-2">
@@ -678,28 +616,37 @@ export default function AllowedEmailsView() {
                           {new Date(allowed.assignedAt).toLocaleDateString("vi-VN")} lúc {new Date(allowed.assignedAt).toLocaleTimeString("vi-VN")}
                         </td>
                         <td className="py-3.5 px-4 text-right">
-                          <button
-                            onClick={() => handleStartEditRole(allowed)}
-                            className="p-1.5 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-blue-100 mr-1"
-                            title="Sửa vai trò"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setConfirmDeleteModal({
-                              isOpen: true,
-                              email: allowed.email,
-                              title: "Xóa phê duyệt quyền truy cập",
-                              type: "revoke"
-                            })}
-                            className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-rose-100"
-                            title="Hủy quyền truy cập"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {isSystemOfficer ? (
+                            <span className="inline-flex px-2 py-1 rounded-lg bg-slate-100 text-slate-500 text-[9px] font-bold uppercase border border-slate-200">
+                              Quản lý bởi Admin
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleStartEditRole(allowed)}
+                                className="p-1.5 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-blue-100 mr-1"
+                                title="Sửa vai trò"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setConfirmDeleteModal({
+                                  isOpen: true,
+                                  email: allowed.email,
+                                  title: "Xóa phê duyệt quyền truy cập",
+                                  type: "revoke"
+                                })}
+                                className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-rose-100"
+                                title="Hủy quyền truy cập"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               )

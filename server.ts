@@ -79,6 +79,33 @@ const SUPER_ADMIN_EMAILS = new Set([
   "tayninhdoimoi@gmail.com",
   "nguyentanbinh3005@gmail.com",
 ]);
+// These are the permanent staff accounts for this deployment. They are merged
+// with any additional accounts granted by an administrator, then stored in
+// Supabase so every Vercel function instance serves the same access list.
+const SYSTEM_MANAGED_OFFICERS: ReadonlyArray<AllowedEmail> = [
+  {
+    id: "SYSTEM-ADMIN-NGUYENTANBINH3005",
+    email: "nguyentanbinh3005@gmail.com",
+    role: UserRole.SUPER_ADMIN,
+    assignedBy: "Cấu hình hệ thống",
+    assignedAt: "2026-08-18T00:00:00.000Z",
+  },
+  {
+    id: "SYSTEM-WARD-NGUYENTANBINHMYHONG",
+    email: "nguyentanbinhmyhong@gmail.com",
+    role: UserRole.WARD_LEADER,
+    assignedBy: "Quản trị viên hệ thống",
+    assignedAt: "2026-08-18T00:00:00.000Z",
+  },
+  {
+    id: "SYSTEM-WARD-NGUYENTANBINH30051989",
+    email: "nguyentanbinh30051989@gmail.com",
+    role: UserRole.WARD_LEADER,
+    assignedBy: "Quản trị viên hệ thống",
+    assignedAt: "2026-08-18T00:00:00.000Z",
+  },
+];
+const SYSTEM_MANAGED_OFFICER_EMAILS = new Set(SYSTEM_MANAGED_OFFICERS.map((officer) => officer.email));
 const pendingSupabaseWrites = new AsyncLocalStorage<Set<Promise<void>>>();
 const CLOUD_COLLECTIONS = [
   "households",
@@ -330,6 +357,33 @@ function autoGenerateBhytFromCccdInServer(r: any) {
   return false;
 }
 
+function reconcileSystemManagedOfficers(current: AllowedEmail[] | undefined) {
+  const officersByEmail = new Map(
+    (current || [])
+      .filter((officer) => officer?.email)
+      .map((officer) => [officer.email.trim().toLowerCase(), officer] as const),
+  );
+  let changed = false;
+
+  for (const configuredOfficer of SYSTEM_MANAGED_OFFICERS) {
+    const existing = officersByEmail.get(configuredOfficer.email);
+    if (
+      !existing
+      || existing.id !== configuredOfficer.id
+      || existing.role !== configuredOfficer.role
+      || existing.assignedBy !== configuredOfficer.assignedBy
+    ) {
+      changed = true;
+    }
+    officersByEmail.set(configuredOfficer.email, {
+      ...existing,
+      ...configuredOfficer,
+    });
+  }
+
+  return { officers: [...officersByEmail.values()], changed };
+}
+
 // Load database from file if available, or write seed data
 async function loadDatabase() {
   if (fs.existsSync(DATA_FILE_PATH)) {
@@ -530,6 +584,22 @@ async function loadDatabase() {
     // filesystem. Import the existing data explicitly with the migration
     // script after creating the table.
     console.warn("No Supabase records were loaded. Skipping automatic seed.");
+  }
+
+  const { officers, changed } = reconcileSystemManagedOfficers(db.allowedEmails);
+  if (changed) {
+    db.allowedEmails = officers;
+    if (supabaseConfigured) {
+      try {
+        await syncSupabaseCollection("allowedEmails", officers);
+      } catch (err) {
+        // Keep system access working for this request even if Supabase is
+        // temporarily unavailable; the next Vercel request retries the sync.
+        console.error("Failed to synchronize system officer accounts:", err);
+      }
+    } else {
+      saveDatabase();
+    }
   }
 }
 
@@ -3364,50 +3434,6 @@ app.get("/api/allowed-emails", (req, res) => {
   res.json(db.allowedEmails);
 });
 
-// POST replace only the approved-officer list from a protected local backup.
-// This endpoint deliberately leaves households, residents, and every other
-// collection untouched so access recovery cannot overwrite citizen records.
-app.post("/api/allowed-emails/import", async (req, res) => {
-  const source = req.body?.allowedEmails;
-  if (!Array.isArray(source)) {
-    return res.status(400).json({ error: "Tệp sao lưu không chứa danh sách cán bộ đã duyệt." });
-  }
-
-  const approved = new Map<string, AllowedEmail>();
-  for (const entry of source) {
-    const email = typeof entry?.email === "string" ? entry.email.trim().toLowerCase() : "";
-    // Super administrators are defined by the server allow-list. A backup may
-    // contain an older, lower role for one of them; preserve it in the list
-    // with the effective role without allowing a backup to promote new admins.
-    const role = SUPER_ADMIN_EMAILS.has(email) ? UserRole.SUPER_ADMIN : entry?.role;
-    const isSupportedRole = role === UserRole.SUPER_ADMIN || role === UserRole.WARD_LEADER || role === UserRole.COLLABORATOR;
-    if (!email || !/^\S+@\S+\.\S+$/.test(email) || !isSupportedRole) continue;
-
-    approved.set(email, {
-      id: typeof entry.id === "string" && entry.id ? entry.id : `ALLOW-${Date.now()}-${approved.size + 1}`,
-      email,
-      role,
-      assignedBy: typeof entry.assignedBy === "string" && entry.assignedBy ? entry.assignedBy : "Khôi phục quyền",
-      assignedAt: typeof entry.assignedAt === "string" && entry.assignedAt ? entry.assignedAt : new Date().toISOString(),
-      permissions: entry.permissions && typeof entry.permissions === "object" ? entry.permissions : undefined,
-    });
-  }
-
-  if (approved.size === 0) {
-    return res.status(400).json({ error: "Không tìm thấy cán bộ hợp lệ để khôi phục trong tệp." });
-  }
-
-  try {
-    db.allowedEmails = [...approved.values()];
-    await syncSupabaseCollection("allowedEmails", db.allowedEmails);
-    addLog("Người quản lý", UserRole.SUPER_ADMIN, "Khôi phục danh sách cán bộ", `Khôi phục ${db.allowedEmails.length} cán bộ đã duyệt từ tệp sao lưu.`);
-    return res.json({ success: true, allowedEmails: db.allowedEmails });
-  } catch (err: any) {
-    console.error("Failed to restore approved officers:", err);
-    return res.status(500).json({ error: "Không thể lưu danh sách cán bộ lên Supabase." });
-  }
-});
-
 // POST add allowed email
 app.post("/api/allowed-emails", async (req, res) => {
   const { email, role, assignedBy, permissions } = req.body;
@@ -3465,8 +3491,8 @@ app.delete("/api/allowed-emails/:email", async (req, res) => {
   if (!db.allowedEmails) db.allowedEmails = [];
   
   const lowerEmail = email.toLowerCase().trim();
-  if (SUPER_ADMIN_EMAILS.has(lowerEmail)) {
-    return res.status(400).json({ error: "Tài khoản quản trị tối cao được bảo vệ bởi cấu hình máy chủ." });
+  if (SYSTEM_MANAGED_OFFICER_EMAILS.has(lowerEmail)) {
+    return res.status(400).json({ error: "Tài khoản cán bộ hệ thống được bảo vệ bởi cấu hình quản trị." });
   }
   const index = db.allowedEmails.findIndex(a => a.email.toLowerCase() === lowerEmail);
   if (index !== -1) {
@@ -3499,8 +3525,8 @@ app.put("/api/allowed-emails/:email", async (req, res) => {
   if (!db.allowedEmails) db.allowedEmails = [];
   
   const lowerEmail = email.toLowerCase().trim();
-  if (SUPER_ADMIN_EMAILS.has(lowerEmail)) {
-    return res.status(400).json({ error: "Vai trò của tài khoản quản trị tối cao được bảo vệ bởi cấu hình máy chủ." });
+  if (SYSTEM_MANAGED_OFFICER_EMAILS.has(lowerEmail)) {
+    return res.status(400).json({ error: "Vai trò của tài khoản cán bộ hệ thống được bảo vệ bởi cấu hình quản trị." });
   }
   if (role !== UserRole.WARD_LEADER && role !== UserRole.COLLABORATOR) {
     return res.status(400).json({ error: "Vai trò không hợp lệ." });
