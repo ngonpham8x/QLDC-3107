@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { UserRole, AllowedEmail, PendingRegistration, CollaboratorPermissions } from "../types";
 import { 
   ShieldCheck, 
@@ -17,10 +17,13 @@ import {
   HelpCircle,
   Edit,
   CheckSquare,
-  Square
+  Square,
+  Upload
 } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
 
 export default function AllowedEmailsView() {
+  const { loading: authLoading, token } = useAuth();
   const [allowedEmails, setAllowedEmails] = useState<AllowedEmail[]>([]);
   const [pendingRegistrations, setPendingRegistrations] = useState<PendingRegistration[]>([]);
   const [securityAlerts, setSecurityAlerts] = useState<any[]>([]);
@@ -54,6 +57,7 @@ export default function AllowedEmailsView() {
     type: "revoke" | "reject";
     id?: string;
   } | null>(null);
+  const accessImportInputRef = useRef<HTMLInputElement>(null);
 
   const handleStartEditRole = (allowed: AllowedEmail) => {
     setEditingEmail(allowed);
@@ -96,26 +100,19 @@ export default function AllowedEmailsView() {
   // Sub-tabs for approved list, pending request list, and security alerts
   const [subTab, setSubTab] = useState<"approved" | "pending" | "security">("approved");
 
-  const safeJsonFetch = async (url: string) => {
-    try {
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      const ct = res.headers.get("content-type");
-      if (ct && ct.includes("application/json")) {
-        return await res.json();
-      }
-      const text = await res.text();
-      try {
-        return JSON.parse(text);
-      } catch {
-        return null;
-      }
-    } catch {
-      return null;
+  const safeJsonFetch = useCallback(async (url: string) => {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const error = new Error(res.status === 401 || res.status === 403 ? "AUTHORIZATION_PENDING" : `API request failed (${res.status})`);
+      (error as Error & { status?: number }).status = res.status;
+      throw error;
     }
-  };
+    const ct = res.headers.get("content-type");
+    if (ct && ct.includes("application/json")) return res.json();
+    return JSON.parse(await res.text());
+  }, []);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
@@ -154,16 +151,61 @@ export default function AllowedEmailsView() {
         );
         setSecurityAlerts(filtered);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.status === 401 || err?.status === 403 || err?.message === "AUTHORIZATION_PENDING") {
+        console.info("Access-control data load deferred until Firebase authorization is ready.");
+        return;
+      }
       console.warn("AllowedEmailsView fetchData warning:", err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [safeJsonFetch]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (authLoading || !token) return;
+    void fetchData();
+  }, [authLoading, token, fetchData]);
+
+  const handleImportApprovedOfficers = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const backup = JSON.parse(String(reader.result || ""));
+        if (!Array.isArray(backup.allowedEmails)) {
+          throw new Error("Tệp này không chứa danh sách cán bộ đã duyệt.");
+        }
+        if (!window.confirm("Khôi phục danh sách cán bộ đã duyệt từ tệp này? Chỉ danh sách quyền bị thay thế; dữ liệu hộ dân và nhân khẩu không bị ảnh hưởng.")) {
+          return;
+        }
+
+        setLoading(true);
+        setError("");
+        setSuccess("");
+        const res = await fetch("/api/allowed-emails/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ allowedEmails: backup.allowedEmails }),
+        });
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || "Không thể khôi phục danh sách cán bộ.");
+
+        const restored = Array.isArray(result.allowedEmails) ? result.allowedEmails : [];
+        setAllowedEmails(restored);
+        localStorage.setItem("cache_allowedEmails", JSON.stringify(restored));
+        setSuccess(`Đã khôi phục ${restored.length} cán bộ đã duyệt. Dữ liệu dân cư không thay đổi.`);
+      } catch (err: any) {
+        setError(err.message || "Không thể đọc tệp khôi phục quyền.");
+      } finally {
+        setLoading(false);
+        if (accessImportInputRef.current) accessImportInputRef.current.value = "";
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const handleQuickApprove = (email: string) => {
     setNewEmail(email);
@@ -485,6 +527,28 @@ export default function AllowedEmailsView() {
               Cấp quyền ngay
             </button>
           </form>
+
+          <div className="border-t border-slate-100 pt-4 space-y-2">
+            <input
+              ref={accessImportInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={handleImportApprovedOfficers}
+            />
+            <button
+              type="button"
+              onClick={() => accessImportInputRef.current?.click()}
+              disabled={loading}
+              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 font-bold text-[11px] rounded-xl border border-slate-200 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Upload className="w-4 h-4" />
+              Khôi phục danh sách cán bộ
+            </button>
+            <p className="text-[10px] text-slate-500 leading-relaxed">
+              Chỉ nhập danh sách cán bộ đã duyệt từ tệp JSON; không thay đổi hộ dân hoặc nhân khẩu.
+            </p>
+          </div>
 
           <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 text-[10px] text-slate-500 leading-relaxed space-y-2">
             <h4 className="font-bold text-slate-700 uppercase tracking-wide">Quy định bảo mật cán bộ:</h4>

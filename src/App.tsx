@@ -1887,10 +1887,20 @@ const checkingAccessRef = useRef(false);
       return;
     }
     try {
-      const docRes = await safeFetchJson("/api/documents");
+      const includeAccessControl = currentUser?.role === UserRole.SUPER_ADMIN;
+      const [docRes, allowedRes, pendingRes] = await Promise.all([
+        safeFetchJson("/api/documents"),
+        includeAccessControl ? safeFetchJson("/api/allowed-emails") : Promise.resolve({ ok: false, data: null }),
+        includeAccessControl ? safeFetchJson("/api/pending-registrations") : Promise.resolve({ ok: false, data: null }),
+      ]);
       const documents = Array.isArray(docRes.data) ? docRes.data : [];
+      const backupData: Record<string, unknown> = { households, residents, businesses, changes, criteria, documents };
+      if (includeAccessControl) {
+        backupData.allowedEmails = Array.isArray(allowedRes.data) ? allowedRes.data : [];
+        backupData.pendingRegistrations = Array.isArray(pendingRes.data) ? pendingRes.data : [];
+      }
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(
-        JSON.stringify({ households, residents, businesses, changes, criteria, documents }, null, 2)
+        JSON.stringify(backupData, null, 2)
       );
       const downloadAnchor = document.createElement("a");
       const now = new Date();

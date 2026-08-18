@@ -649,37 +649,40 @@ async function deleteSupabaseRecords(collectionName: string, recordIds: string[]
   }
 }
 
-async function syncAllToSupabase() {
+async function syncSupabaseCollection(collectionName: string, items: any[]) {
   if (!supabaseConfigured) return;
 
+  const existingRecordIds = await loadSupabaseRecordIds(collectionName);
+  const records = items
+    .map((item: any) => {
+      const data = collectionName === "dismissedEmails" && typeof item === "string"
+        ? { id: item, email: item }
+        : item;
+      if (!data?.id) return null;
+      return { collection_name: collectionName, record_id: String(data.id), data };
+    })
+    .filter(Boolean);
+
+  for (let offset = 0; offset < records.length; offset += 500) {
+    await supabaseRequest("app_records?on_conflict=collection_name,record_id", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(records.slice(offset, offset + 500)),
+    });
+  }
+
+  // Never empty a collection before its replacement data is durable. Other
+  // Vercel instances can keep serving the previous complete snapshot until
+  // stale records are removed after the successful upsert.
+  const currentRecordIds = new Set(records.map((record: any) => String(record.record_id)));
+  const staleRecordIds = existingRecordIds.filter((id) => !currentRecordIds.has(id));
+  await deleteSupabaseRecords(collectionName, staleRecordIds);
+}
+
+async function syncAllToSupabase() {
+  if (!supabaseConfigured) return;
   for (const collectionName of CLOUD_COLLECTIONS) {
-    const items = (db as any)[collectionName] || [];
-    const existingRecordIds = await loadSupabaseRecordIds(collectionName);
-
-    const records = items
-      .map((item: any) => {
-        const data = collectionName === "dismissedEmails" && typeof item === "string"
-          ? { id: item, email: item }
-          : item;
-        if (!data?.id) return null;
-        return { collection_name: collectionName, record_id: String(data.id), data };
-      })
-      .filter(Boolean);
-
-    for (let offset = 0; offset < records.length; offset += 500) {
-      await supabaseRequest("app_records?on_conflict=collection_name,record_id", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
-        body: JSON.stringify(records.slice(offset, offset + 500)),
-      });
-    }
-
-    // Never empty a collection before its replacement data is durable. Other
-    // Vercel instances can keep serving the previous complete snapshot until
-    // stale records are removed after the successful upsert.
-    const currentRecordIds = new Set(records.map((record: any) => String(record.record_id)));
-    const staleRecordIds = existingRecordIds.filter((id) => !currentRecordIds.has(id));
-    await deleteSupabaseRecords(collectionName, staleRecordIds);
+    await syncSupabaseCollection(collectionName, (db as any)[collectionName] || []);
   }
 }
 
@@ -1531,6 +1534,11 @@ app.post("/api/data/restore", async (req, res) => {
   db.criteria = Array.isArray(backupData.criteria) ? backupData.criteria : DEFAULT_CRITERIA;
   db.logs = Array.isArray(backupData.logs) ? backupData.logs : db.logs || [];
   db.documents = Array.isArray(backupData.documents) ? backupData.documents : db.documents || [];
+  // Older public backups omit access-control data. Preserve the Cloud list in
+  // that case, but restore it whenever a protected admin backup includes it.
+  if (Array.isArray(backupData.allowedEmails)) db.allowedEmails = backupData.allowedEmails;
+  if (Array.isArray(backupData.pendingRegistrations)) db.pendingRegistrations = backupData.pendingRegistrations;
+  if (Array.isArray(backupData.dismissedEmails)) db.dismissedEmails = backupData.dismissedEmails;
 
   const expectedCounts = {
     households: db.households.length,
@@ -1539,6 +1547,8 @@ app.post("/api/data/restore", async (req, res) => {
     businesses: db.businesses.length,
     criteria: db.criteria.length,
     documents: db.documents.length,
+    allowedEmails: db.allowedEmails?.length || 0,
+    pendingRegistrations: db.pendingRegistrations?.length || 0,
   };
 
   try {
@@ -3352,6 +3362,47 @@ Hãy viết 1 đoạn đánh giá ngắn gọn (3-4 dòng bằng tiếng Việt)
 app.get("/api/allowed-emails", (req, res) => {
   if (!db.allowedEmails) db.allowedEmails = [];
   res.json(db.allowedEmails);
+});
+
+// POST replace only the approved-officer list from a protected local backup.
+// This endpoint deliberately leaves households, residents, and every other
+// collection untouched so access recovery cannot overwrite citizen records.
+app.post("/api/allowed-emails/import", async (req, res) => {
+  const source = req.body?.allowedEmails;
+  if (!Array.isArray(source)) {
+    return res.status(400).json({ error: "Tệp sao lưu không chứa danh sách cán bộ đã duyệt." });
+  }
+
+  const approved = new Map<string, AllowedEmail>();
+  for (const entry of source) {
+    const email = typeof entry?.email === "string" ? entry.email.trim().toLowerCase() : "";
+    const role = entry?.role;
+    const isSupportedRole = role === UserRole.WARD_LEADER || role === UserRole.COLLABORATOR;
+    if (!email || !/^\S+@\S+\.\S+$/.test(email) || !isSupportedRole || SUPER_ADMIN_EMAILS.has(email)) continue;
+
+    approved.set(email, {
+      id: typeof entry.id === "string" && entry.id ? entry.id : `ALLOW-${Date.now()}-${approved.size + 1}`,
+      email,
+      role,
+      assignedBy: typeof entry.assignedBy === "string" && entry.assignedBy ? entry.assignedBy : "Khôi phục quyền",
+      assignedAt: typeof entry.assignedAt === "string" && entry.assignedAt ? entry.assignedAt : new Date().toISOString(),
+      permissions: entry.permissions && typeof entry.permissions === "object" ? entry.permissions : undefined,
+    });
+  }
+
+  if (approved.size === 0) {
+    return res.status(400).json({ error: "Không tìm thấy cán bộ hợp lệ để khôi phục trong tệp." });
+  }
+
+  try {
+    db.allowedEmails = [...approved.values()];
+    await syncSupabaseCollection("allowedEmails", db.allowedEmails);
+    addLog("Người quản lý", UserRole.SUPER_ADMIN, "Khôi phục danh sách cán bộ", `Khôi phục ${db.allowedEmails.length} cán bộ đã duyệt từ tệp sao lưu.`);
+    return res.json({ success: true, allowedEmails: db.allowedEmails });
+  } catch (err: any) {
+    console.error("Failed to restore approved officers:", err);
+    return res.status(500).json({ error: "Không thể lưu danh sách cán bộ lên Supabase." });
+  }
 });
 
 // POST add allowed email
