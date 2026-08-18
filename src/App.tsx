@@ -34,7 +34,7 @@ import MovableChatbox from "./components/MovableChatbox";
 const officialLogo = "/logo_default.png";
 
 export default function App() {
-  const { user, loading: authLoading, login: contextLogin, loginWithRedirect: contextLoginWithRedirect, logout: contextLogout } = useAuth();
+  const { user, token, loading: authLoading, login: contextLogin, loginWithRedirect: contextLoginWithRedirect, logout: contextLogout } = useAuth();
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
 
   // 2FA Phone Verification States
@@ -597,22 +597,19 @@ const checkingAccessRef = useRef(false);
   };
 
   // Fetch initial data from Express backend with offline fallbacks
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const safeJson = async (p: Promise<Response>) => {
-        try {
-          const res = await p;
-          if (!res.ok) return {};
-          const ct = res.headers.get("content-type");
-          if (ct && ct.includes("application/json")) {
-            return await res.json();
-          }
-          const text = await res.text();
-          return JSON.parse(text);
-        } catch {
-          return {};
+        const res = await p;
+        if (!res.ok) {
+          const error = new Error(res.status === 401 || res.status === 403 ? "AUTHORIZATION_PENDING" : `API request failed (${res.status})`);
+          (error as Error & { status?: number }).status = res.status;
+          throw error;
         }
+        const ct = res.headers.get("content-type");
+        if (ct && ct.includes("application/json")) return res.json();
+        return JSON.parse(await res.text());
       };
 
       const [hhRes, resRes, busRes, critRes, changesRes] = await Promise.all([
@@ -699,7 +696,14 @@ const checkingAccessRef = useRef(false);
       localStorage.setItem("off_changes", JSON.stringify(ch));
 
       setIsOnline(true);
-    } catch (err) {
+    } catch (err: any) {
+      // Initial React effects can run before Firebase has attached the token.
+      // Keep the current UI/cache intact and wait for the authenticated retry;
+      // never replace valid residents with empty arrays after a 401/403.
+      if (err?.status === 401 || err?.status === 403 || err?.message === "AUTHORIZATION_PENDING") {
+        console.info("Data load deferred until Firebase authorization is ready.");
+        return;
+      }
       console.warn("Backend API not reachable. Loading from offline cache.", err);
       setIsOnline(false);
 
@@ -728,7 +732,7 @@ const checkingAccessRef = useRef(false);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const safeFetchJson = async (url: string, options?: RequestInit) => {
     try {
@@ -807,8 +811,15 @@ const checkingAccessRef = useRef(false);
       }
     }
 
-    fetchData();
   }, []);
+
+  // Do not fetch protected resident data until both Firebase authentication and
+  // application access control have completed. This runs again after a login
+  // token becomes available, recovering automatically from an early 401.
+  useEffect(() => {
+    if (authLoading || checkingAccess || !user || !token || !currentUser) return;
+    void fetchData();
+  }, [authLoading, checkingAccess, user, token, currentUser, fetchData]);
 
   // Check security alerts periodically for SUPER_ADMIN
   useEffect(() => {
