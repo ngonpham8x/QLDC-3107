@@ -779,13 +779,12 @@ app.use(express.urlencoded({
 }));
 
 let databaseInitialization: Promise<void> | null = null;
-let lastDatabaseRefreshAt = 0;
 function ensureDatabaseInitialized() {
-  // Serverless instances are reused. Refresh their cache frequently so an
-  // instance created before a restore cannot continue serving stale arrays.
-  const shouldRefresh = isVercel && Date.now() - lastDatabaseRefreshAt > 1_000;
+  // A Vercel invocation can be handled by any warm instance. Always refresh
+  // its in-memory snapshot from Supabase so a request after restore never
+  // serves another instance's stale residents/households collection.
+  const shouldRefresh = isVercel;
   if (!databaseInitialization || shouldRefresh) {
-    lastDatabaseRefreshAt = Date.now();
     databaseInitialization = loadDatabase();
   }
   return databaseInitialization;
@@ -1533,7 +1532,37 @@ app.post("/api/data/restore", async (req, res) => {
   db.logs = Array.isArray(backupData.logs) ? backupData.logs : db.logs || [];
   db.documents = Array.isArray(backupData.documents) ? backupData.documents : db.documents || [];
 
-  await syncAllToSupabase();
+  const expectedCounts = {
+    households: db.households.length,
+    residents: db.residents.length,
+    changes: db.changes.length,
+    businesses: db.businesses.length,
+    criteria: db.criteria.length,
+    documents: db.documents.length,
+  };
+
+  try {
+    await syncAllToSupabase();
+
+    // A local success message is insufficient on serverless infrastructure.
+    // Read Cloud back and verify every restored collection before reporting a
+    // successful restore to the administrator.
+    if (supabaseConfigured) {
+      const cloudLoaded = await loadFromSupabase();
+      const mismatchedCollections = Object.entries(expectedCounts)
+        .filter(([collection, expected]) => (db as any)[collection]?.length !== expected)
+        .map(([collection, expected]) => `${collection}: expected ${expected}, received ${(db as any)[collection]?.length || 0}`);
+
+      if (!cloudLoaded || mismatchedCollections.length > 0) {
+        throw new Error(`Supabase verification failed (${mismatchedCollections.join("; ") || "no cloud data returned"}).`);
+      }
+    }
+  } catch (err: any) {
+    console.error("Restore could not be verified in Supabase:", err);
+    return res.status(500).json({
+      error: "Khôi phục chưa hoàn tất trên Supabase. Dữ liệu Cloud không khớp với tệp sao lưu; vui lòng không tiếp tục thao tác và thử lại sau khi liên hệ quản trị viên.",
+    });
+  }
 
   addLog(username, userRole, "Phục hồi dữ liệu", `Khôi phục toàn bộ hệ thống từ file sao lưu (${db.households.length} hộ, ${db.residents.length} nhân khẩu, ${db.documents.length} tài liệu)`);
   saveDatabase();
