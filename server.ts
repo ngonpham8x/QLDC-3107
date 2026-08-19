@@ -739,7 +739,13 @@ async function loadFromSupabase(): Promise<boolean> {
 }
 
 async function saveToSupabase(collectionName: string, item: any) {
-  if (!supabaseConfigured || !item || !item.id) return;
+  if (!item || !item.id) return;
+  if (!supabaseConfigured) {
+    if (isVercel) {
+      throw new Error("Supabase is not configured on Vercel. Set SUPABASE_URL and SUPABASE_SECRET_KEY before changing data.");
+    }
+    return;
+  }
   await supabaseRequest("app_records?on_conflict=collection_name,record_id", {
     method: "POST",
     headers: { "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
@@ -752,7 +758,13 @@ async function saveToSupabase(collectionName: string, item: any) {
 }
 
 async function deleteFromSupabase(collectionName: string, id: string) {
-  if (!supabaseConfigured || !id) return;
+  if (!id) return;
+  if (!supabaseConfigured) {
+    if (isVercel) {
+      throw new Error("Supabase is not configured on Vercel. Set SUPABASE_URL and SUPABASE_SECRET_KEY before changing data.");
+    }
+    return;
+  }
   await supabaseRequest(
     `app_records?collection_name=eq.${encodeURIComponent(collectionName)}&record_id=eq.${encodeURIComponent(id)}`,
     { method: "DELETE", headers: { Prefer: "return=minimal" } },
@@ -788,7 +800,12 @@ async function deleteSupabaseRecords(collectionName: string, recordIds: string[]
 }
 
 async function syncSupabaseCollection(collectionName: string, items: any[]) {
-  if (!supabaseConfigured) return;
+  if (!supabaseConfigured) {
+    if (isVercel) {
+      throw new Error("Supabase is not configured on Vercel. A cloud synchronization cannot be completed.");
+    }
+    return;
+  }
 
   const existingRecordIds = await loadSupabaseRecordIds(collectionName);
   const records = items
@@ -818,7 +835,6 @@ async function syncSupabaseCollection(collectionName: string, items: any[]) {
 }
 
 async function syncAllToSupabase() {
-  if (!supabaseConfigured) return;
   for (const collectionName of CLOUD_COLLECTIONS) {
     await syncSupabaseCollection(collectionName, (db as any)[collectionName] || []);
   }
@@ -1719,6 +1735,12 @@ app.post("/api/data/restore", async (req, res) => {
   const userRole = (req.query.role as UserRole) || UserRole.SUPER_ADMIN;
   const backupData = req.body;
 
+  if (isVercel && !supabaseConfigured) {
+    return res.status(503).json({
+      error: "Chưa thể phục hồi: Vercel chưa được cấu hình Supabase. Hãy thêm SUPABASE_URL và SUPABASE_SECRET_KEY rồi triển khai lại; dữ liệu sẽ không được phục hồi vào bộ nhớ tạm.",
+    });
+  }
+
   if (!backupData || typeof backupData !== "object") {
     return res.status(400).json({ error: "Dữ liệu sao lưu trống hoặc không đúng định dạng." });
   }
@@ -2393,14 +2415,30 @@ app.post("/api/data/firestore-sync", async (req, res) => {
 */
 
 // GET Supabase connection status and data counts. The service-role key is never
-// returned to the client.
-app.get("/api/data/supabase-status", (req, res) => {
+// returned to the client. A real query is required: a present-but-wrong key is
+// not reported as an online database.
+app.get("/api/data/supabase-status", async (req, res) => {
   const projectRef = supabaseConfigured
     ? new URL(SUPABASE_URL).hostname.split(".")[0]
     : "Not configured";
 
+  let connected = false;
+  let connectionError = "";
+  if (supabaseConfigured) {
+    try {
+      await supabaseRequest("app_records?select=record_id&limit=1");
+      connected = true;
+    } catch (err: any) {
+      connectionError = err?.message || "Không thể kết nối bảng app_records trên Supabase.";
+      console.error("Supabase status check failed:", err);
+    }
+  } else {
+    connectionError = "Thiếu SUPABASE_URL hoặc SUPABASE_SECRET_KEY trên Vercel.";
+  }
+
   res.json({
-    connected: supabaseConfigured,
+    connected,
+    connectionError,
     databaseId: "app_records",
     projectId: projectRef,
     localCounts: {

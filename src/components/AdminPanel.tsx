@@ -113,6 +113,21 @@ export default function AdminPanel({
   }, [adminTab]);
 
   const handleSync = async (direction: "pull" | "push") => {
+    // A real resident database must never fall back to a simulated cloud
+    // action. It would report success while Vercel loses the in-memory data.
+    if (!dbStatus?.connected) {
+      const message = dbStatus?.connectionError
+        || "Supabase chưa kết nối. Hãy kiểm tra SUPABASE_URL, SUPABASE_SECRET_KEY và bảng app_records trên Vercel trước khi đồng bộ.";
+      setLocalAlert({
+        isOpen: true,
+        title: "Chưa thể đồng bộ dữ liệu thật",
+        message,
+        type: "error"
+      });
+      setSyncMessage(`Chưa đồng bộ: ${message}`);
+      return;
+    }
+
     // If not connected to Supabase, we run in simulated demo mode to give a great experience
     if (!dbStatus?.connected) {
       const demoConfirmMsg = direction === "pull"
@@ -636,7 +651,12 @@ export default function AdminPanel({
                         </span>
                       )}
                     </h3>
-                    <p className="text-[10px] text-slate-400">Kết nối cơ sở dữ liệu đám mây Google Cloud Platform thời gian thực.</p>
+                    <p className="text-[10px] text-slate-400">Kết nối cơ sở dữ liệu Supabase theo thời gian thực.</p>
+                    {!loadingStatus && dbStatus?.connectionError && (
+                      <p className="mt-1 text-[10px] font-semibold text-rose-600 break-words">
+                        {dbStatus.connectionError}
+                      </p>
+                    )}
                   </div>
                 </div>
 
