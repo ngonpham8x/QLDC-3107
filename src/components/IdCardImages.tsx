@@ -105,12 +105,12 @@ export default function IdCardImages({ entityType, entityId, frontPath, backPath
       const data = await response.json();
       if (!response.ok || !data.path) throw new Error(data.error || "Không thể lưu ảnh CCCD.");
 
-      const previousPath = side === "front" ? frontPath : backPath;
       onChange(side === "front" ? { frontPath: data.path, backPath } : { frontPath, backPath: data.path });
-      if (previousPath && previousPath !== data.path) {
-        void fetch(`/api/id-card-images?path=${encodeURIComponent(previousPath)}`, { method: "DELETE" });
-      }
-      setMessage(`Đã lưu ảnh mặt ${side === "front" ? "trước" : "sau"} an toàn.`);
+      // Do not delete the previous object here. The parent record may still
+      // point to it until the administrator submits the form. Keeping it
+      // prevents a cancelled/failed form submission from breaking an image
+      // reference; unreferenced objects can be cleaned up separately.
+      setMessage(`Đã tải ảnh mặt ${side === "front" ? "trước" : "sau"}. Nhấn Lưu biểu mẫu để cập nhật liên kết.`);
     } catch (error: any) {
       setMessage(error?.message || "Không thể tải ảnh CCCD.");
     } finally {
@@ -118,18 +118,14 @@ export default function IdCardImages({ entityType, entityId, frontPath, backPath
     }
   };
 
-  const remove = async (side: "front" | "back") => {
+  const remove = (side: "front" | "back") => {
     const path = side === "front" ? frontPath : backPath;
-    if (!path || disabled || !window.confirm(`Xóa ảnh mặt ${side === "front" ? "trước" : "sau"} CCCD?`)) return;
-    try {
-      const response = await fetch(`/api/id-card-images?path=${encodeURIComponent(path)}`, { method: "DELETE" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Không thể xóa ảnh CCCD.");
-      onChange(side === "front" ? { frontPath: undefined, backPath } : { frontPath, backPath: undefined });
-      setMessage("Đã xóa ảnh CCCD.");
-    } catch (error: any) {
-      setMessage(error?.message || "Không thể xóa ảnh CCCD.");
-    }
+    if (!path || disabled || !window.confirm(`Bỏ liên kết ảnh mặt ${side === "front" ? "trước" : "sau"} CCCD? Ảnh chỉ được xóa sau khi hệ thống xác nhận không còn bản ghi nào sử dụng.`)) return;
+    // As with replacement, defer physical deletion until a server-side
+    // retention/cleanup task can prove no saved record references the file.
+    // This keeps an unsaved cancelled edit from creating a broken link.
+    onChange(side === "front" ? { frontPath: undefined, backPath } : { frontPath, backPath: undefined });
+    setMessage("Đã bỏ liên kết ảnh. Nhấn Lưu biểu mẫu để xác nhận thay đổi.");
   };
 
   const card = (side: "front" | "back", path?: string, url?: string) => {
@@ -157,7 +153,7 @@ export default function IdCardImages({ entityType, entityId, frontPath, backPath
             <input type="file" className="hidden" accept="image/jpeg,image/png,image/webp" disabled={disabled || uploading} onChange={(event) => { void upload(side, event.target.files?.[0]); event.currentTarget.value = ""; }} />
           </label>
           {url && <a href={url} target="_blank" rel="noreferrer" className="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:text-slate-900" title="Xem ảnh"><Eye className="w-3.5 h-3.5" /></a>}
-          {path && <button type="button" onClick={() => { void remove(side); }} disabled={disabled || uploading} className="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-50 disabled:opacity-50" title="Xóa ảnh"><Trash2 className="w-3.5 h-3.5" /></button>}
+          {path && <button type="button" onClick={() => remove(side)} disabled={disabled || uploading} className="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-rose-100 text-rose-600 hover:bg-rose-50 disabled:opacity-50" title="Bỏ liên kết ảnh"><Trash2 className="w-3.5 h-3.5" /></button>}
         </div>
       </div>
     );
