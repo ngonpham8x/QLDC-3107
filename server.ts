@@ -324,6 +324,79 @@ let db: Database = {
   dismissedEmails: []
 };
 
+type DemographicIntegrityResult = {
+  valid: boolean;
+  errors: string[];
+};
+
+/**
+ * A household and its residents are one integrity unit. Never accept a
+ * backup/synchronization snapshot with duplicate identifiers, orphaned
+ * residents, or a household whose declared owner is not one of its members.
+ */
+function validateDemographicIntegrity(
+  householdsInput: unknown,
+  residentsInput: unknown,
+  requireRecords = true,
+): DemographicIntegrityResult {
+  const errors: string[] = [];
+  if (!Array.isArray(householdsInput) || !Array.isArray(residentsInput)) {
+    return { valid: false, errors: ["Thiếu danh sách hộ dân hoặc nhân khẩu."] };
+  }
+
+  const households = householdsInput as Household[];
+  const residents = residentsInput as Resident[];
+  if (requireRecords && (households.length === 0 || residents.length === 0)) {
+    return { valid: false, errors: ["Tệp phải có ít nhất một hộ dân và một nhân khẩu."] };
+  }
+  if (!requireRecords && households.length === 0 && residents.length === 0) {
+    return { valid: true, errors };
+  }
+
+  const householdIds = new Set<string>();
+  for (const household of households) {
+    const id = typeof household?.id === "string" ? household.id.trim() : "";
+    if (!id) errors.push("Có hộ dân không có mã hộ.");
+    else if (householdIds.has(id)) errors.push(`Trùng mã hộ dân: ${id}.`);
+    else householdIds.add(id);
+  }
+
+  const residentsById = new Map<string, Resident>();
+  const residentCountsByHousehold = new Map<string, number>();
+  for (const resident of residents) {
+    const id = typeof resident?.id === "string" ? resident.id.trim() : "";
+    const householdId = typeof resident?.householdId === "string" ? resident.householdId.trim() : "";
+    if (!id) {
+      errors.push("Có nhân khẩu không có mã định danh/CCCD.");
+      continue;
+    }
+    if (residentsById.has(id)) errors.push(`Trùng mã nhân khẩu/CCCD: ${id}.`);
+    else residentsById.set(id, resident);
+    if (!householdId || !householdIds.has(householdId)) {
+      errors.push(`Nhân khẩu ${id} không thuộc hộ dân hợp lệ.`);
+      continue;
+    }
+    residentCountsByHousehold.set(householdId, (residentCountsByHousehold.get(householdId) || 0) + 1);
+  }
+
+  for (const household of households) {
+    const householdId = typeof household?.id === "string" ? household.id.trim() : "";
+    if (!householdId) continue;
+    const ownerId = typeof household.ownerId === "string" ? household.ownerId.trim() : "";
+    const owner = ownerId ? residentsById.get(ownerId) : undefined;
+    if (!owner) {
+      errors.push(`Hộ ${householdId} không có nhân khẩu chủ hộ hợp lệ.`);
+    } else if (owner.householdId?.trim() !== householdId) {
+      errors.push(`Chủ hộ ${ownerId} không thuộc đúng hộ ${householdId}.`);
+    }
+    if (!residentCountsByHousehold.get(householdId)) {
+      errors.push(`Hộ ${householdId} không có nhân khẩu nào.`);
+    }
+  }
+
+  return { valid: errors.length === 0, errors: errors.slice(0, 12) };
+}
+
 function extractAndTrimTổ(address: string): { cleanAddress: string, extractedTổ: string | null } {
   if (!address) return { cleanAddress: "", extractedTổ: null };
   // Robust regex covering both precomposed and decomposed forms of 'Tổ' and 'Tổ dân phố'
@@ -645,6 +718,15 @@ async function loadFromSupabase(): Promise<boolean> {
       } else if (record.data && typeof record.data === "object") {
         cloudData[record.collection_name].push(record.data);
       }
+    }
+
+    const integrity = validateDemographicIntegrity(
+      cloudData.households,
+      cloudData.residents,
+      false,
+    );
+    if (!integrity.valid) {
+      throw new Error(`Supabase demographic integrity check failed: ${integrity.errors.join(" ")}`);
     }
 
     db = { ...db, ...cloudData };
@@ -1582,30 +1664,11 @@ app.post("/api/data/sync-demographics", async (req, res) => {
   const households = source?.households;
   const residents = source?.residents;
 
-  if (!Array.isArray(households) || !Array.isArray(residents) || households.length === 0 || residents.length === 0) {
-    return res.status(400).json({ error: "Tệp đồng bộ phải có ít nhất một hộ dân và một nhân khẩu." });
-  }
-
-  const householdIds = new Set<string>();
-  for (const household of households) {
-    const id = typeof household?.id === "string" ? household.id.trim() : "";
-    if (!id || householdIds.has(id)) {
-      return res.status(400).json({ error: "Dữ liệu hộ dân có mã trống hoặc trùng lặp." });
-    }
-    householdIds.add(id);
-  }
-
-  const residentIds = new Set<string>();
-  for (const resident of residents) {
-    const id = typeof resident?.id === "string" ? resident.id.trim() : "";
-    const householdId = typeof resident?.householdId === "string" ? resident.householdId.trim() : "";
-    if (!id || residentIds.has(id)) {
-      return res.status(400).json({ error: "Dữ liệu nhân khẩu có mã trống hoặc trùng lặp." });
-    }
-    if (!householdId || !householdIds.has(householdId)) {
-      return res.status(400).json({ error: "Có nhân khẩu không thuộc hộ dân hợp lệ; đồng bộ đã được hủy để bảo toàn dữ liệu." });
-    }
-    residentIds.add(id);
+  const integrity = validateDemographicIntegrity(households, residents);
+  if (!integrity.valid) {
+    return res.status(400).json({
+      error: `Dữ liệu hộ dân và nhân khẩu chưa hợp lệ; đồng bộ đã được hủy: ${integrity.errors.join(" ")}`,
+    });
   }
 
   try {
@@ -1643,9 +1706,24 @@ app.post("/api/data/restore", async (req, res) => {
     return res.status(400).json({ error: "Dữ liệu sao lưu trống hoặc không đúng định dạng." });
   }
 
-  // Set values with fallback arrays to prevent crashes
-  db.households = Array.isArray(backupData.households) ? backupData.households : [];
-  db.residents = Array.isArray(backupData.residents) ? backupData.residents : [];
+  const restoredHouseholds = Array.isArray(backupData.households) ? backupData.households : [];
+  const restoredResidents = Array.isArray(backupData.residents) ? backupData.residents : [];
+  const integrity = validateDemographicIntegrity(restoredHouseholds, restoredResidents);
+  if (!integrity.valid) {
+    return res.status(400).json({
+      error: `Tệp sao lưu không nhất quán nên chưa có dữ liệu nào được thay đổi: ${integrity.errors.join(" ")}`,
+    });
+  }
+
+  const previousDb = db;
+
+  // The validated demographic snapshot is assigned only after all links have
+  // been checked, so an invalid file can never replace live data.
+  db = {
+    ...db,
+    households: restoredHouseholds,
+    residents: restoredResidents,
+  };
   db.changes = Array.isArray(backupData.changes) ? backupData.changes : [];
   db.businesses = Array.isArray(backupData.businesses) ? backupData.businesses : [];
   db.criteria = Array.isArray(backupData.criteria) ? backupData.criteria : DEFAULT_CRITERIA;
@@ -1685,6 +1763,7 @@ app.post("/api/data/restore", async (req, res) => {
       }
     }
   } catch (err: any) {
+    db = previousDb;
     console.error("Restore could not be verified in Supabase:", err);
     return res.status(500).json({
       error: "Khôi phục chưa hoàn tất trên Supabase. Dữ liệu Cloud không khớp với tệp sao lưu; vui lòng không tiếp tục thao tác và thử lại sau khi liên hệ quản trị viên.",
@@ -1702,7 +1781,13 @@ app.post("/api/data/restore", async (req, res) => {
     businessesCount: db.businesses.length,
     changesCount: db.changes.length,
     criteriaCount: db.criteria.length,
-    documentsCount: db.documents.length
+    documentsCount: db.documents.length,
+    integrity: {
+      verified: true,
+      orphanResidents: 0,
+      householdsWithoutOwners: 0,
+      householdsWithoutResidents: 0,
+    },
   });
 });
 
@@ -2384,6 +2469,10 @@ app.post("/api/households", (req, res) => {
     createdAt: req.body.createdAt || new Date().toISOString().split("T")[0]
   };
 
+  if (db.households.some((household) => household.id === newHousehold.id)) {
+    return res.status(409).json({ error: "Mã hộ gia đình đã tồn tại." });
+  }
+
   if (!newHousehold.gpsLat || !newHousehold.gpsLng || Number.isNaN(Number(newHousehold.gpsLat)) || Number.isNaN(Number(newHousehold.gpsLng))) {
     const charSum = (newHousehold.id || newHousehold.ownerName || "1").split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
     newHousehold.gpsLat = parseFloat((11.345 + (charSum % 30) * 0.0011).toFixed(6));
@@ -2458,6 +2547,9 @@ app.put("/api/households/:id", (req, res) => {
     }
     const oldId = id;
     const newId = bodyData.id || oldId;
+    if (newId !== oldId && db.households.some((household) => household.id === newId)) {
+      return res.status(409).json({ error: "Mã hộ gia đình mới đã tồn tại." });
+    }
     
     db.households[index] = { ...db.households[index], ...bodyData };
     
@@ -2494,6 +2586,12 @@ app.delete("/api/households/:id", (req, res) => {
   const { id } = req.params;
   const index = db.households.findIndex((h) => h.id === id);
   if (index !== -1) {
+    const memberCount = db.residents.filter((resident) => resident.householdId === id).length;
+    if (memberCount > 0) {
+      return res.status(409).json({
+        error: `Không thể xóa hộ đang có ${memberCount} nhân khẩu. Hãy chuyển hoặc xóa nhân khẩu theo quy trình trước.`,
+      });
+    }
     const deleted = db.households.splice(index, 1)[0];
     saveDatabase();
     deleteFromFirestore("households", id);
@@ -2527,6 +2625,12 @@ app.post("/api/residents", (req, res) => {
     ...bodyData,
     id: req.body.id || req.body.nationalId || `ID-${Math.floor(10000000 + Math.random() * 90000000)}`
   };
+  if (db.residents.some((resident) => resident.id === newResident.id)) {
+    return res.status(409).json({ error: "Mã định danh/CCCD này đã tồn tại." });
+  }
+  if (!newResident.householdId || !db.households.some((household) => household.id === newResident.householdId)) {
+    return res.status(400).json({ error: "Nhân khẩu phải thuộc một hộ dân hợp lệ." });
+  }
   autoGenerateBhytFromCccdInServer(newResident);
 
   // If this resident is a new owner of an existing household, update household owner name
@@ -2555,6 +2659,10 @@ app.put("/api/residents/:id", (req, res) => {
   if (index !== -1) {
     const oldResident = db.residents[index];
     const bodyData = { ...req.body };
+    const nextResidentId = typeof bodyData.id === "string" && bodyData.id.trim() ? bodyData.id.trim() : id;
+    if (nextResidentId !== id && db.residents.some((resident, residentIndex) => residentIndex !== index && resident.id === nextResidentId)) {
+      return res.status(409).json({ error: "Mã định danh/CCCD mới đã tồn tại." });
+    }
     if (bodyData.permanentAddress) {
       const { cleanAddress, extractedTổ } = extractAndTrimTổ(bodyData.permanentAddress);
       bodyData.permanentAddress = cleanAddress;
@@ -2566,7 +2674,17 @@ app.put("/api/residents/:id", (req, res) => {
       const { cleanAddress } = extractAndTrimTổ(bodyData.temporaryAddress);
       bodyData.temporaryAddress = cleanAddress;
     }
-    db.residents[index] = { ...oldResident, ...bodyData };
+    const nextHouseholdId = bodyData.householdId || oldResident.householdId;
+    if (!nextHouseholdId || !db.households.some((household) => household.id === nextHouseholdId)) {
+      return res.status(400).json({ error: "Nhân khẩu phải thuộc một hộ dân hợp lệ." });
+    }
+    const ownedHousehold = db.households.find((household) => household.ownerId === id);
+    if (ownedHousehold && nextHouseholdId !== oldResident.householdId) {
+      return res.status(409).json({
+        error: `Không thể chuyển chủ hộ ${oldResident.fullName} sang hộ khác. Hãy chỉ định chủ hộ mới cho ${ownedHousehold.id} trước.`,
+      });
+    }
+    db.residents[index] = { ...oldResident, ...bodyData, id: nextResidentId };
     autoGenerateBhytFromCccdInServer(db.residents[index]);
     
     // Keep household owner details in sync with the linked resident record.
@@ -2587,6 +2705,11 @@ app.put("/api/residents/:id", (req, res) => {
 
     saveDatabase();
     saveToFirestore("residents", db.residents[index]);
+    if (nextResidentId !== id) {
+      // Record IDs are the Supabase keys. Remove the old key only after the
+      // replacement has been queued, preventing duplicate versions of one person.
+      deleteFromFirestore("residents", id);
+    }
     addLog(req.query.user as string || "Hệ thống", req.query.role as UserRole || UserRole.COLLABORATOR, "Cập nhật nhân khẩu", detailMsg);
     res.json(db.residents[index]);
   } else {
@@ -2599,6 +2722,12 @@ app.delete("/api/residents/:id", (req, res) => {
   const { id } = req.params;
   const index = db.residents.findIndex((r) => r.id === id);
   if (index !== -1) {
+    const ownedHousehold = db.households.find((household) => household.ownerId === id);
+    if (ownedHousehold) {
+      return res.status(409).json({
+        error: `Không thể xóa nhân khẩu đang là chủ hộ của ${ownedHousehold.id}. Hãy chỉ định chủ hộ mới trước.`,
+      });
+    }
     const deleted = db.residents.splice(index, 1)[0];
     saveDatabase();
     deleteFromFirestore("residents", id);

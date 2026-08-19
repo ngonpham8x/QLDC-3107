@@ -130,8 +130,8 @@ interface HouseholdViewProps {
   residents: Resident[];
   changes?: DemographicsChange[];
   currentUser: User | null;
-  onAddHousehold: (household: Household) => void;
-  onUpdateHousehold: (household: Household, originalId?: string) => void;
+  onAddHousehold: (household: Household) => Promise<void>;
+  onUpdateHousehold: (household: Household, originalId?: string) => Promise<void>;
   onDeleteHousehold: (id: string) => void;
   onExport?: (type: "xlsx" | "pdf", title: string, headers: string[], rows: any[][]) => void;
   isMobile?: boolean;
@@ -139,8 +139,8 @@ interface HouseholdViewProps {
   offlineQueueCount?: number;
   isSyncing?: boolean;
   isOnline?: boolean;
-  onAddResident?: (resident: Resident) => void;
-  onUpdateResident?: (resident: Resident, originalId?: string) => void;
+  onAddResident?: (resident: Resident) => Promise<void>;
+  onUpdateResident?: (resident: Resident, originalId?: string) => Promise<void>;
   existingEntityIds?: Set<string>;
 }
 
@@ -758,7 +758,7 @@ export default function HouseholdView({
   };
 
   // Submit Form
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formOwnerName.trim() || !formAddress.trim()) {
       alert("Vui lòng nhập đầy đủ Tên chủ hộ và Địa chỉ!");
@@ -838,12 +838,14 @@ export default function HouseholdView({
     };
 
     if (formMode === "add") {
-      onAddHousehold(householdData);
+      // Create the household first. This avoids a race where its owner could
+      // be rejected as an orphan resident by the server.
+      await onAddHousehold(householdData);
       if (onAddResident) {
-        onAddResident(ownerResidentData);
+        await onAddResident(ownerResidentData);
       }
     } else {
-      onUpdateHousehold(householdData, originalFormId);
+      await onUpdateHousehold(householdData, originalFormId);
       const existingOwner = residents.find(r =>
         r.id === formOwnerId ||
         r.id === finalOwnerId ||
@@ -852,14 +854,14 @@ export default function HouseholdView({
       if (existingOwner) {
         if (onUpdateResident) {
           if (existingOwner.id !== finalOwnerId) {
-            onUpdateResident({ ...ownerResidentData, id: finalOwnerId }, existingOwner.id);
+            await onUpdateResident({ ...ownerResidentData, id: finalOwnerId }, existingOwner.id);
           } else {
-            onUpdateResident(ownerResidentData);
+            await onUpdateResident(ownerResidentData);
           }
         }
       } else {
         if (onAddResident) {
-          onAddResident(ownerResidentData);
+          await onAddResident(ownerResidentData);
         }
       }
     }
@@ -921,7 +923,7 @@ export default function HouseholdView({
         ...customValues
       ];
     });
-    let reportTitle = "DANH SACH HO GIA DINH";
+    let reportTitle = `DANH SACH HO GIA DINH (${filteredHouseholds.length}/${households.length} hộ)`;
     const subFilters: string[] = [];
     if (wasteFeeFilter !== "ALL") {
       subFilters.push(wasteFeeFilter === "REGISTERED" ? "Da dang ky rac" : wasteFeeFilter === "UNREGISTERED" ? "Chua dang ky rac" : "Da huy rac");

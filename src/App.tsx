@@ -1217,26 +1217,30 @@ const checkingAccessRef = useRef(false);
       alert("Tài khoản Cộng tác viên của bạn không có quyền xoá dữ liệu.");
       return;
     }
-    let deletedName = "";
-    setHouseholds(prev => {
-      const deleted = prev.find(h => h.id === id);
-      if (deleted) deletedName = deleted.ownerName;
-      const updated = prev.filter(h => h.id !== id);
-      syncOfflineCache("households", updated);
-      return updated;
-    });
+    const target = households.find((household) => household.id === id);
+    const memberCount = residents.filter((resident) => resident.householdId === id).length;
+    if (memberCount > 0) {
+      alert(`Không thể xóa hộ ${target?.ownerName || id} vì còn ${memberCount} nhân khẩu. Hãy chuyển hoặc xử lý nhân khẩu trước.`);
+      return;
+    }
     try {
       const q = getUserQueryParams();
       const res = await fetch(`/api/households/${encodeURIComponent(id)}?${q}`, { method: "DELETE" });
       if (res.ok) {
+        setHouseholds(prev => {
+          const updated = prev.filter(h => h.id !== id);
+          syncOfflineCache("households", updated);
+          return updated;
+        });
         if (offlineQueue.length > 0) triggerSync();
         await fetchData(); // Đồng bộ tự động lập tức toàn bộ hệ thống
       } else {
-        throw new Error("Server error");
+        const result = await res.json().catch(() => null);
+        throw new Error(result?.error || "Không thể xóa hộ gia đình.");
       }
-    } catch (e) {
-      console.warn("API delete error, queuing offline action:", e);
-      enqueueOfflineAction(`/api/households/${encodeURIComponent(id)}?${getUserQueryParams()}`, "DELETE", null, `Xoá hộ gia đình: ${deletedName || id}`);
+    } catch (e: any) {
+      console.warn("Household delete failed:", e);
+      alert(e.message || "Không thể xóa hộ gia đình. Dữ liệu chưa thay đổi.");
     }
   };
 
@@ -1363,26 +1367,30 @@ const checkingAccessRef = useRef(false);
       alert("Tài khoản Cộng tác viên của bạn không có quyền xoá dữ liệu.");
       return;
     }
-    let deletedName = "";
-    setResidents(prev => {
-      const deleted = prev.find(r => r.id === id);
-      if (deleted) deletedName = deleted.fullName;
-      const updated = prev.filter(r => r.id !== id);
-      syncOfflineCache("residents", updated);
-      return updated;
-    });
+    const target = residents.find((resident) => resident.id === id);
+    const ownedHousehold = households.find((household) => household.ownerId === id);
+    if (ownedHousehold) {
+      alert(`Không thể xóa ${target?.fullName || id} vì đang là chủ hộ của ${ownedHousehold.id}. Hãy chỉ định chủ hộ mới trước.`);
+      return;
+    }
     try {
       const q = getUserQueryParams();
       const res = await fetch(`/api/residents/${encodeURIComponent(id)}?${q}`, { method: "DELETE" });
       if (res.ok) {
+        setResidents(prev => {
+          const updated = prev.filter(r => r.id !== id);
+          syncOfflineCache("residents", updated);
+          return updated;
+        });
         if (offlineQueue.length > 0) triggerSync();
         await fetchData(); // Đồng bộ tự động lập tức toàn bộ hệ thống
       } else {
-        throw new Error("Server error");
+        const result = await res.json().catch(() => null);
+        throw new Error(result?.error || "Không thể xóa nhân khẩu.");
       }
-    } catch (e) {
-      console.warn("API delete error, queuing offline action:", e);
-      enqueueOfflineAction(`/api/residents/${encodeURIComponent(id)}?${getUserQueryParams()}`, "DELETE", null, `Xoá nhân khẩu: ${deletedName || id}`);
+    } catch (e: any) {
+      console.warn("Resident delete failed:", e);
+      alert(e.message || "Không thể xóa nhân khẩu. Dữ liệu chưa thay đổi.");
     }
   };
 
@@ -2139,7 +2147,7 @@ const checkingAccessRef = useRef(false);
         setAppAlert({
           isOpen: true,
           title: "Khôi phục thành công",
-          message: `Toàn bộ dữ liệu đã được khôi phục thành công lên hệ thống:\n- Hộ dân: ${result.householdsCount}\n- Nhân khẩu: ${result.residentsCount}\n- Hộ kinh doanh: ${result.businessesCount}\n- Biến động: ${result.changesCount}\n- Tiêu chí: ${result.criteriaCount}${result.documentsCount !== undefined ? `\n- Tài liệu lưu trữ: ${result.documentsCount}` : ""}`,
+          message: `Toàn bộ dữ liệu đã được khôi phục thành công lên hệ thống:\n- Hộ dân: ${result.householdsCount}\n- Nhân khẩu: ${result.residentsCount}\n- Hộ kinh doanh: ${result.businessesCount}\n- Biến động: ${result.changesCount}\n- Tiêu chí: ${result.criteriaCount}${result.documentsCount !== undefined ? `\n- Tài liệu lưu trữ: ${result.documentsCount}` : ""}${result.integrity?.verified ? "\n- Liên kết hộ dân – nhân khẩu: Đã kiểm tra, không có nhân khẩu mồ côi." : ""}`,
           type: "success"
         });
       } else {

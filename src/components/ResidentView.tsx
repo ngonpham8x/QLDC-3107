@@ -655,7 +655,9 @@ export default function ResidentView({
         ...customValues
       ];
     });
-    onExport(type, "Danh sách Nhân khẩu", headers, rows);
+    const deathExcludedCount = residents.length - activeResidents.length;
+    const reportScope = `${filteredResidents.length}/${activeResidents.length} nhân khẩu cư trú${deathExcludedCount ? `; ${deathExcludedCount} đã qua đời không thuộc báo cáo cư trú` : ""}`;
+    onExport(type, `Danh sách Nhân khẩu (${reportScope})`, headers, rows);
   };
 
   return (
