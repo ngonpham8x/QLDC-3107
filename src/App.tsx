@@ -2826,7 +2826,7 @@ const checkingAccessRef = useRef(false);
 
   return (
     <>
-    <DeviceSimulator>
+    <DeviceSimulator headerResetKey={currentUser ? `${currentUser.id || currentUser.username}_${currentUser.role}` : "signed-out"}>
       {(isMobile, deviceType) => {
         // Chờ Firebase và kiểm tra quyền truy cập hoàn tất trước khi quyết định hiển thị Login hay Dashboard
 if (authLoading || checkingAccess) {
@@ -3930,7 +3930,7 @@ if (authLoading || checkingAccess) {
                 </>
               )}
               <footer className="py-4 text-center text-xs text-slate-500 font-medium border-t border-slate-200/80 mt-auto bg-slate-50/50">
-                © Bản quyền thuộc về {currentUser?.fullName ? currentUser.fullName : "Ủy ban Nhân dân Khu phố Ninh Phú"}
+                © Bản quyền thuộc về Phạm Duy Ngôn
               </footer>
             </div>
 

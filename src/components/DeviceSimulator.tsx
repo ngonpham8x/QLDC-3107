@@ -8,13 +8,16 @@ import { ZoomIn, RotateCcw, ChevronUp, ChevronDown } from "lucide-react";
 
 interface DeviceSimulatorProps {
   children: (isMobile: boolean, deviceType: "web" | "android" | "ios") => React.ReactNode;
+  headerResetKey?: string;
 }
 
-export default function DeviceSimulator({ children }: DeviceSimulatorProps) {
+export default function DeviceSimulator({ children, headerResetKey }: DeviceSimulatorProps) {
   const [zoom, setZoom] = useState<number>(100);
   const [isDetectedMobile, setIsDetectedMobile] = useState<boolean>(false);
   const [isIos, setIsIos] = useState<boolean>(false);
-  const [isMobileHeaderCollapsed, setIsMobileHeaderCollapsed] = useState<boolean>(false);
+  // Keep the large banner out of the way by default. It can be opened on any
+  // screen size from the compact header and collapses again for each session.
+  const [isMobileHeaderCollapsed, setIsMobileHeaderCollapsed] = useState<boolean>(true);
 
   useEffect(() => {
     const checkDevice = () => {
@@ -31,11 +34,15 @@ export default function DeviceSimulator({ children }: DeviceSimulatorProps) {
     return () => window.removeEventListener("resize", checkDevice);
   }, []);
 
+  useEffect(() => {
+    setIsMobileHeaderCollapsed(true);
+  }, [headerResetKey]);
+
   return (
     <div id="device-simulator-root" className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
-      {/* Simulation Control Header - Full on desktop/tablet, collapsable on mobile */}
+      {/* Compact header shown while the large banner is hidden. */}
       {isMobileHeaderCollapsed && (
-        <header className="md:hidden bg-[#111c2e] border-b border-slate-800 px-3 py-1.5 flex items-center justify-between shrink-0 select-none">
+        <header className="bg-[#111c2e] border-b border-slate-800 px-3 py-1.5 flex items-center justify-between shrink-0 select-none">
           <div className="flex items-center gap-2">
             <span className="bg-emerald-500 text-slate-950 px-1.5 py-0.5 rounded text-[10px] font-black uppercase">QLDC</span>
             <span className="text-[11px] font-bold text-white truncate max-w-[180px]">HỆ THỐNG QUẢN LÝ DÂN CƯ</span>
@@ -52,7 +59,7 @@ export default function DeviceSimulator({ children }: DeviceSimulatorProps) {
         </header>
       )}
 
-      <header className={`bg-[#111c2e] border-b border-slate-800/80 px-4 py-3 sm:px-6 sm:py-4 flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shrink-0 ${isMobileHeaderCollapsed ? 'hidden md:flex' : 'flex'}`}>
+      <header className={`bg-[#111c2e] border-b border-slate-800/80 px-4 py-3 sm:px-6 sm:py-4 flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 shrink-0 ${isMobileHeaderCollapsed ? 'hidden' : 'flex'}`}>
         <div className="flex flex-col gap-1 sm:gap-1.5">
           <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-3">
             <div className="flex items-center gap-2 sm:gap-3">
@@ -69,11 +76,11 @@ export default function DeviceSimulator({ children }: DeviceSimulatorProps) {
               </div>
             </div>
 
-            {/* Collapse Button for Mobile */}
+            {/* Collapse Button */}
             <button
               type="button"
               onClick={() => setIsMobileHeaderCollapsed(true)}
-              className="md:hidden flex items-center gap-1 text-[10px] font-bold bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white px-2 py-1 rounded-lg border border-slate-700 transition-all cursor-pointer shrink-0"
+              className="flex items-center gap-1 text-[10px] font-bold bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white px-2 py-1 rounded-lg border border-slate-700 transition-all cursor-pointer shrink-0"
               title="Thu gọn khung thanh công cụ"
             >
               <ChevronUp className="w-3.5 h-3.5 text-emerald-400" />
