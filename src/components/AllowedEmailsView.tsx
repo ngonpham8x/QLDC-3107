@@ -572,7 +572,9 @@ export default function AllowedEmailsView() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {allowedEmails.map((allowed) => {
-                      const isSystemOfficer = allowed.id.startsWith("SYSTEM-");
+                      // Only the root administrator is immutable. Approved
+                      // ward leaders remain manageable from this screen.
+                      const isSystemOfficer = allowed.email.toLowerCase() === "nguyentanbinh3005@gmail.com";
                       return (
                       <tr key={allowed.id} className="hover:bg-slate-50/40 transition-colors font-medium">
                         <td className="py-3.5 px-4">

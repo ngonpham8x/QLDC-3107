@@ -83,29 +83,15 @@ const SUPER_ADMIN_EMAILS = new Set([
   "tayninhdoimoi@gmail.com",
   "nguyentanbinh3005@gmail.com",
 ]);
-// These are the permanent staff accounts for this deployment. They are merged
-// with any additional accounts granted by an administrator, then stored in
-// Supabase so every Vercel function instance serves the same access list.
+// The root administrator is protected by server configuration. Ward-leader
+// accounts remain regular approved staff so the administrator can edit or
+// revoke them from the access-control screen.
 const SYSTEM_MANAGED_OFFICERS: ReadonlyArray<AllowedEmail> = [
   {
     id: "SYSTEM-ADMIN-NGUYENTANBINH3005",
     email: "nguyentanbinh3005@gmail.com",
     role: UserRole.SUPER_ADMIN,
     assignedBy: "Cấu hình hệ thống",
-    assignedAt: "2026-08-18T00:00:00.000Z",
-  },
-  {
-    id: "SYSTEM-WARD-NGUYENTANBINHMYHONG",
-    email: "nguyentanbinhmyhong@gmail.com",
-    role: UserRole.WARD_LEADER,
-    assignedBy: "Quản trị viên hệ thống",
-    assignedAt: "2026-08-18T00:00:00.000Z",
-  },
-  {
-    id: "SYSTEM-WARD-NGUYENTANBINH30051989",
-    email: "nguyentanbinh30051989@gmail.com",
-    role: UserRole.WARD_LEADER,
-    assignedBy: "Quản trị viên hệ thống",
     assignedAt: "2026-08-18T00:00:00.000Z",
   },
 ];
