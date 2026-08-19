@@ -13,6 +13,7 @@ interface CccdQrScannerModalProps {
     birthDate: string;
     gender: string;
     address: string;
+    issueDate?: string;
   }) => void;
 }
 
@@ -119,6 +120,15 @@ export const CccdQrScannerModal: React.FC<CccdQrScannerModalProps> = ({
     return dateStr;
   };
 
+  // QR CCCD encodes dates as ddMMyyyy while native date inputs use yyyy-MM-dd.
+  const toIsoDate = (dateStr: string) => {
+    const value = dateStr.trim();
+    if (/^\d{8}$/.test(value)) {
+      return `${value.slice(4, 8)}-${value.slice(2, 4)}-${value.slice(0, 2)}`;
+    }
+    return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+  };
+
   // 2. Tự động kiểm thử thuật toán phân tích mã QR CCCD ngay trên máy khách trước khi đưa ra sử dụng thực tế
   useEffect(() => {
     try {
@@ -170,8 +180,8 @@ export const CccdQrScannerModal: React.FC<CccdQrScannerModalProps> = ({
     
     // Kiểm tra xem có đúng chuẩn mã QR của CCCD không (tối thiểu 7 trường)
     if (parts.length >= 7) {
-      const cccdVal = parts[0] || 'N/A';
-      const cmndVal = parts[1] || 'Không có';
+        const cccdVal = parts[0] || 'N/A';
+        const cmndVal = /^\d{9}$/.test(parts[1] || "") ? parts[1] : "";
       const hoTenVal = parts[2] || 'N/A';
       const ngaySinhVal = formatDateString(parts[3]);
       const gioiTinhVal = parts[4] || 'N/A';
@@ -198,16 +208,8 @@ export const CccdQrScannerModal: React.FC<CccdQrScannerModalProps> = ({
 
       if (elInfo) elInfo.style.display = 'block';
 
-      // Chuyển đổi ngày sinh ddmmyyyy sang ISO yyyy-mm-dd để đồng bộ lại hệ thống React
-      let birthIso = "";
-      if (parts[3] && parts[3].length === 8) {
-        const d = parts[3].substring(0, 2);
-        const m = parts[3].substring(2, 4);
-        const y = parts[3].substring(4);
-        birthIso = `${y}-${m}-${d}`;
-      } else {
-        birthIso = parts[3];
-      }
+      const birthIso = toIsoDate(parts[3] || "");
+      const issueDateIso = toIsoDate(parts[6] || "");
 
       setScannedResult({
         cccd: cccdVal,
@@ -216,7 +218,7 @@ export const CccdQrScannerModal: React.FC<CccdQrScannerModalProps> = ({
         birthDate: birthIso,
         gender: gioiTinhVal,
         address: diaChiVal,
-        issueDate: ngayCapVal,
+        issueDate: issueDateIso,
         rawText: qrText
       });
     } else {
@@ -695,19 +697,20 @@ ctx.drawImage(
     let rawBirth = "";
     let rawGender = "";
     let address = "";
+    let rawIssueDate = "";
 
-    // CCCD mới có CMND cũ
+    // Standard QR CCCD has seven fields. Its old-CMND field can be blank.
     if (
       parts.length >= 7 &&
-      /^\d{12}$/.test(parts[0]) &&
-      /^\d{9}$/.test(parts[1])
+      /^\d{12}$/.test(parts[0])
     ) {
       cccd = parts[0];
-      oldCmnd = parts[1];
+      oldCmnd = /^\d{9}$/.test(parts[1]) ? parts[1] : "";
       fullName = parts[2];
       rawBirth = parts[3];
       rawGender = parts[4];
       address = parts[5];
+      rawIssueDate = parts[6];
     }
 
     // CCCD mới không có CMND cũ
@@ -720,6 +723,7 @@ ctx.drawImage(
       rawBirth = parts[2];
       rawGender = parts[3];
       address = parts[4];
+      rawIssueDate = parts[5];
     }
 
     // QR cũ
@@ -729,26 +733,21 @@ ctx.drawImage(
       rawBirth = parts[2] || "";
       rawGender = parts[3] || "";
       address = parts[4] || "";
+      rawIssueDate = parts[5] || "";
     }
 
     if (!cccd || !fullName) {
       return null;
     }
 
-    let birthDate = "";
-
-    if (rawBirth.length === 8) {
-      birthDate =
-        `${rawBirth.substring(4,8)}-${rawBirth.substring(2,4)}-${rawBirth.substring(0,2)}`;
-    }
-
     return {
       cccd,
       oldCmnd,
       fullName,
-      birthDate,
+      birthDate: toIsoDate(rawBirth),
       gender: rawGender,
-      address
+      address,
+      issueDate: toIsoDate(rawIssueDate)
     };
 
   } catch (e) {
@@ -1225,7 +1224,8 @@ ctx.imageSmoothingEnabled = false;
                           fullName: scannedResult.fullName,
                           birthDate: scannedResult.birthDate,
                           gender: scannedResult.gender,
-                          address: scannedResult.address
+                          address: scannedResult.address,
+                          issueDate: scannedResult.issueDate
                         });
                         onClose();
                       }

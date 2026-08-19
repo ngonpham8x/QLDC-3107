@@ -18,7 +18,6 @@ import { CccdQrScannerModal } from "./CccdQrScannerModal";
 import MapPickerModal from "./MapPickerModal";
 import { getCurrentGpsLocation } from "../utils/geolocation";
 import GoogleGISMap from "./GoogleGISMap";
-import IdCardImages from "./IdCardImages";
 import Zoom from "react-medium-image-zoom";
 import "react-medium-image-zoom/dist/styles.css";
 
@@ -227,8 +226,6 @@ export default function HouseholdView({
   const [ownerCccd, setOwnerCccd] = useState("");
   const [ownerOldCmnd, setOwnerOldCmnd] = useState("");
   const [ownerCccdIssuedDate, setOwnerCccdIssuedDate] = useState("");
-  const [ownerCccdFrontImagePath, setOwnerCccdFrontImagePath] = useState("");
-  const [ownerCccdBackImagePath, setOwnerCccdBackImagePath] = useState("");
   const [ownerPhone, setOwnerPhone] = useState("");
   const [ownerBirthDate, setOwnerBirthDate] = useState("");
   const [ownerGender, setOwnerGender] = useState<Gender>(Gender.MALE);
@@ -545,10 +542,12 @@ export default function HouseholdView({
     birthDate: string;
     gender: string;
     address: string;
+    issueDate?: string;
   }) => {
     setFormOwnerName(data.fullName);
     setOwnerCccd(data.cccd);
     setOwnerOldCmnd(data.oldCmnd || "");
+    setOwnerCccdIssuedDate(data.issueDate || "");
     setFormOwnerId(data.cccd);
     setOwnerBirthDate(data.birthDate);
     
@@ -562,8 +561,10 @@ export default function HouseholdView({
     
     setFormAddress(data.address);
     setOwnerPermanentAddress(data.address);
+    setOwnerTemporaryAddress("");
+    setOwnerResidentStatus(ResidentStatus.PERMANENT);
 
-    const matchWard = data.address.match(/Tổ\s+(\d+)/i);
+    const matchWard = data.address.match(/\bT\D?\s*(\d{1,2})\b/i);
     if (matchWard) {
       setFormWard(`Tổ ${matchWard[1]}`);
     }
@@ -598,8 +599,6 @@ export default function HouseholdView({
     setOwnerCccd("");
     setOwnerOldCmnd("");
     setOwnerCccdIssuedDate("");
-    setOwnerCccdFrontImagePath("");
-    setOwnerCccdBackImagePath("");
     setOwnerPhone("");
     setOwnerBirthDate("");
     setOwnerGender(Gender.MALE);
@@ -652,8 +651,6 @@ export default function HouseholdView({
       setOwnerCccd(ownerRes.id);
       setOwnerOldCmnd(ownerRes.oldCmnd || h.ownerOldCmnd || "");
       setOwnerCccdIssuedDate(ownerRes.cccdIssuedDate || h.ownerCccdIssuedDate || "");
-      setOwnerCccdFrontImagePath(ownerRes.cccdFrontImagePath || h.ownerCccdFrontImagePath || "");
-      setOwnerCccdBackImagePath(ownerRes.cccdBackImagePath || h.ownerCccdBackImagePath || "");
       setOwnerPhone(ownerRes.phone || "");
       setOwnerBirthDate(ownerRes.birthDate || "");
       setOwnerGender(ownerRes.gender || Gender.MALE);
@@ -671,8 +668,6 @@ export default function HouseholdView({
       setOwnerCccd(h.ownerId || "");
       setOwnerOldCmnd(h.ownerOldCmnd || "");
       setOwnerCccdIssuedDate(h.ownerCccdIssuedDate || "");
-      setOwnerCccdFrontImagePath(h.ownerCccdFrontImagePath || "");
-      setOwnerCccdBackImagePath(h.ownerCccdBackImagePath || "");
       setOwnerPhone("");
       setOwnerBirthDate("");
       setOwnerGender(Gender.MALE);
@@ -792,8 +787,6 @@ export default function HouseholdView({
       ownerId: finalOwnerId,
       ownerOldCmnd: ownerOldCmnd.trim() || undefined,
       ownerCccdIssuedDate: ownerCccdIssuedDate || undefined,
-      ownerCccdFrontImagePath: ownerCccdFrontImagePath || undefined,
-      ownerCccdBackImagePath: ownerCccdBackImagePath || undefined,
       ownerName: formOwnerName,
       address: formAddress,
       wardId: formWard,
@@ -820,8 +813,6 @@ export default function HouseholdView({
       id: finalOwnerId,
       oldCmnd: ownerOldCmnd.trim() || undefined,
       cccdIssuedDate: ownerCccdIssuedDate || undefined,
-      cccdFrontImagePath: ownerCccdFrontImagePath || undefined,
-      cccdBackImagePath: ownerCccdBackImagePath || undefined,
       fullName: formOwnerName,
       birthDate: ownerBirthDate,
       gender: ownerGender,
@@ -2047,18 +2038,6 @@ export default function HouseholdView({
                     />
                   </div>
                 </div>
-
-                <IdCardImages
-                  entityType="household"
-                  entityId={formId}
-                  frontPath={ownerCccdFrontImagePath || undefined}
-                  backPath={ownerCccdBackImagePath || undefined}
-                  onChange={({ frontPath, backPath }) => {
-                    setOwnerCccdFrontImagePath(frontPath || "");
-                    setOwnerCccdBackImagePath(backPath || "");
-                  }}
-                  disabled={currentUser?.role !== UserRole.SUPER_ADMIN}
-                />
 
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Số điện thoại *</label>

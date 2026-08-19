@@ -80,6 +80,7 @@ export default function DemographicsChangeView({
   // New resident form states
   const [newResidentName, setNewResidentName] = useState("");
   const [newResidentCccd, setNewResidentCccd] = useState("");
+  const [newResidentCccdIssuedDate, setNewResidentCccdIssuedDate] = useState("");
   const [newResidentBirthDate, setNewResidentBirthDate] = useState("");
   const [newResidentGender, setNewResidentGender] = useState<Gender>(Gender.MALE);
   const [newResidentRelation, setNewResidentRelation] = useState("Con");
@@ -117,8 +118,10 @@ export default function DemographicsChangeView({
     birthDate: string;
     gender: string;
     address: string;
+    issueDate?: string;
   }) => {
     setNewResidentCccd(data.cccd);
+    setNewResidentCccdIssuedDate(data.issueDate || "");
     setNewResidentName(data.fullName);
     setNewResidentBirthDate(data.birthDate);
     if (data.gender === "Nam") {
@@ -130,7 +133,7 @@ export default function DemographicsChangeView({
     }
     if (data.address) {
       setNewResidentPermanentAddress(data.address);
-      setNewResidentTemporaryAddress(data.address);
+      setNewResidentTemporaryAddress("");
     }
   };
 
@@ -173,6 +176,7 @@ export default function DemographicsChangeView({
     // Reset resident sub-form
     setNewResidentName("");
     setNewResidentCccd("");
+    setNewResidentCccdIssuedDate("");
     setNewResidentBirthDate("");
     setNewResidentGender(Gender.MALE);
     setNewResidentRelation("Con");
@@ -251,6 +255,7 @@ export default function DemographicsChangeView({
       // 1. Create and add new resident
       const newResident: Resident = {
         id: generatedId,
+        cccdIssuedDate: newResidentCccdIssuedDate || undefined,
         fullName: newResidentName.trim(),
         birthDate: newResidentBirthDate,
         gender: newResidentGender,
@@ -844,7 +849,7 @@ export default function DemographicsChangeView({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ngày tháng năm sinh *</label>
                       <input
@@ -852,6 +857,16 @@ export default function DemographicsChangeView({
                         required
                         value={newResidentBirthDate}
                         onChange={(e) => setNewResidentBirthDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs text-slate-800"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ngày cấp CCCD</label>
+                      <input
+                        type="date"
+                        value={newResidentCccdIssuedDate}
+                        onChange={(e) => setNewResidentCccdIssuedDate(e.target.value)}
                         className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs text-slate-800"
                       />
                     </div>

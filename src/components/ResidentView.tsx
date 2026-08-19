@@ -19,7 +19,6 @@ import { CccdQrScannerModal } from "./CccdQrScannerModal";
 import MapPickerModal from "./MapPickerModal";
 import { getCurrentGpsLocation } from "../utils/geolocation";
 import GoogleGISMap from "./GoogleGISMap";
-import IdCardImages from "./IdCardImages";
 
 interface ResidentViewProps {
   residents: Resident[];
@@ -193,8 +192,6 @@ export default function ResidentView({
   const [formId, setFormId] = useState(""); // CCCD / Personal ID
   const [formOldCmnd, setFormOldCmnd] = useState("");
   const [formCccdIssuedDate, setFormCccdIssuedDate] = useState("");
-  const [formCccdFrontImagePath, setFormCccdFrontImagePath] = useState("");
-  const [formCccdBackImagePath, setFormCccdBackImagePath] = useState("");
   const [formFullName, setFormFullName] = useState("");
   const [formBirthDate, setFormBirthDate] = useState("");
   const [formGender, setFormGender] = useState<Gender>(Gender.MALE);
@@ -310,8 +307,6 @@ export default function ResidentView({
     setFormId("");
     setFormOldCmnd("");
     setFormCccdIssuedDate("");
-    setFormCccdFrontImagePath("");
-    setFormCccdBackImagePath("");
     setFormFullName("");
     setFormBirthDate("");
     setFormGender(Gender.MALE);
@@ -354,8 +349,6 @@ export default function ResidentView({
     setFormId(r.id);
     setFormOldCmnd(r.oldCmnd || "");
     setFormCccdIssuedDate(r.cccdIssuedDate || "");
-    setFormCccdFrontImagePath(r.cccdFrontImagePath || "");
-    setFormCccdBackImagePath(r.cccdBackImagePath || "");
     setFormFullName(r.fullName);
     setFormBirthDate(r.birthDate);
     setFormGender(r.gender);
@@ -489,8 +482,6 @@ export default function ResidentView({
       id: formId,
       oldCmnd: formOldCmnd.trim() || undefined,
       cccdIssuedDate: formCccdIssuedDate || undefined,
-      cccdFrontImagePath: formCccdFrontImagePath || undefined,
-      cccdBackImagePath: formCccdBackImagePath || undefined,
       fullName: formFullName,
       birthDate: formBirthDate,
       gender: formGender,
@@ -583,9 +574,11 @@ export default function ResidentView({
     birthDate: string;
     gender: string;
     address: string;
+    issueDate?: string;
   }) => {
     setFormId(data.cccd);
     setFormOldCmnd(data.oldCmnd || "");
+    setFormCccdIssuedDate(data.issueDate || "");
     setFormFullName(data.fullName);
     setFormBirthDate(data.birthDate);
     
@@ -597,8 +590,14 @@ export default function ResidentView({
       setFormGender(Gender.OTHER);
     }
     
+    // The QR only contains the permanent address. It does not contain a
+    // temporary residence, contact, insurance, work or household relation.
+    setFormStatus(ResidentStatus.PERMANENT);
+    setFormNationality("Việt Nam");
     setFormPermanentAddress(data.address);
-    setFormTemporaryAddress(data.address);
+    setFormTemporaryAddress("");
+    const matchWard = data.address.match(/\bT\D?\s*(\d{1,2})\b/i);
+    if (matchWard) setFormWardId(`Tổ ${matchWard[1]}`);
   };
 
   const handleExport = (type: "xlsx" | "pdf") => {
@@ -1581,18 +1580,6 @@ export default function ResidentView({
                   />
                 </div>
               </div>
-
-              <IdCardImages
-                entityType="resident"
-                entityId={formId}
-                frontPath={formCccdFrontImagePath || undefined}
-                backPath={formCccdBackImagePath || undefined}
-                onChange={({ frontPath, backPath }) => {
-                  setFormCccdFrontImagePath(frontPath || "");
-                  setFormCccdBackImagePath(backPath || "");
-                }}
-                disabled={currentUser?.role !== UserRole.SUPER_ADMIN}
-              />
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
