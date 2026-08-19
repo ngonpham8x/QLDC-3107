@@ -120,7 +120,7 @@ export default function IdCardImages({ entityType, entityId, frontPath, backPath
 
   const remove = (side: "front" | "back") => {
     const path = side === "front" ? frontPath : backPath;
-    if (!path || disabled || !window.confirm(`Bỏ liên kết ảnh mặt ${side === "front" ? "trước" : "sau"} CCCD? Ảnh chỉ được xóa sau khi hệ thống xác nhận không còn bản ghi nào sử dụng.`)) return;
+    if (!path || disabled || !window.confirm(`Bỏ liên kết ảnh mặt ${side === "front" ? "trước" : "sau"} CCCD? Ảnh cũ sẽ được giữ lại an toàn; nhấn Lưu biểu mẫu để xác nhận thay đổi.`)) return;
     // As with replacement, defer physical deletion until a server-side
     // retention/cleanup task can prove no saved record references the file.
     // This keeps an unsaved cancelled edit from creating a broken link.
