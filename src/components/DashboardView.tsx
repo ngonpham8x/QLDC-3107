@@ -907,14 +907,14 @@ export default function DashboardView({
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 hover:border-slate-600 rounded-xl text-xs font-bold text-slate-100 transition-colors cursor-pointer"
                 >
                   <FileJson className="w-4 h-4 text-amber-400" />
-                  Sao lưu cấu trúc (.JSON)
+                  Tải 1 bản sao lưu JSON đầy đủ
                 </button>
                 <button
                   onClick={onExportFullBackup}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-xs font-bold text-white shadow-sm transition-colors cursor-pointer"
                 >
                   <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
-                  Sao lưu Excel (.XLSX)
+                  Xuất bảng Excel tham khảo
                 </button>
               </div>
             </div>

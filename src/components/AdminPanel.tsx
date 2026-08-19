@@ -906,7 +906,7 @@ export default function AdminPanel({
               </div>
 
               <p className="text-xs text-slate-600 leading-relaxed">
-                Hệ thống hỗ trợ cơ chế sao lưu toàn bộ cơ sở dữ liệu bao gồm: hộ gia đình, nhân khẩu, biến động, hộ kinh doanh và nhật ký hệ thống ra một tệp JSON tiêu chuẩn để lưu trữ độc lập hoặc nhập ngược lại khi cần thiết.
+                Sao lưu tạo một bản chụp thống nhất trong một tệp JSON, gồm hộ dân, nhân khẩu, biến động, hộ kinh doanh, tiêu chí, tài liệu, nhật ký và phân quyền. Tệp có thể phục hồi lại mà không làm đứt liên kết hộ dân – nhân khẩu.
               </p>
 
               <div className="pt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -914,7 +914,7 @@ export default function AdminPanel({
                   onClick={onExportBackup}
                   className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
                 >
-                  <Download className="w-4 h-4" /> Tải tệp Sao Lưu
+                  <Download className="w-4 h-4" /> Tải 1 tệp JSON đầy đủ
                 </button>
 
                 <button

@@ -79,16 +79,44 @@ const SUPER_ADMIN_EMAILS = new Set([
   "tayninhdoimoi@gmail.com",
   "nguyentanbinh3005@gmail.com",
 ]);
-// The root administrator is protected by server configuration. Ward-leader
-// accounts remain regular approved staff so the administrator can edit or
-// revoke them from the access-control screen.
+// Required officers are reconciled after every cloud load so a data restore
+// cannot silently remove their access. These accounts are deliberately
+// protected from deletion/role changes through the UI.
 const SYSTEM_MANAGED_OFFICERS: ReadonlyArray<AllowedEmail> = [
+  {
+    id: "SYSTEM-SUPER-ADMIN-BHTTQ3",
+    email: "bhttq3@gmail.com",
+    role: UserRole.SUPER_ADMIN,
+    assignedBy: "Cấu hình hệ thống",
+    assignedAt: "2026-08-18T00:00:00.000Z",
+  },
+  {
+    id: "SYSTEM-SUPER-ADMIN-TAYNINHDOIMOI",
+    email: "tayninhdoimoi@gmail.com",
+    role: UserRole.SUPER_ADMIN,
+    assignedBy: "Cấu hình hệ thống",
+    assignedAt: "2026-08-18T00:00:00.000Z",
+  },
   {
     id: "SYSTEM-ADMIN-NGUYENTANBINH3005",
     email: "nguyentanbinh3005@gmail.com",
     role: UserRole.SUPER_ADMIN,
     assignedBy: "Cấu hình hệ thống",
     assignedAt: "2026-08-18T00:00:00.000Z",
+  },
+  {
+    id: "SYSTEM-WARD-LEADER-NGUYENTANBINH30051989",
+    email: "nguyentanbinh30051989@gmail.com",
+    role: UserRole.WARD_LEADER,
+    assignedBy: "Cấu hình hệ thống",
+    assignedAt: "2026-08-19T00:00:00.000Z",
+  },
+  {
+    id: "SYSTEM-WARD-LEADER-NGUYENTANBINHMYHONG",
+    email: "nguyentanbinhmyhong@gmail.com",
+    role: UserRole.WARD_LEADER,
+    assignedBy: "Cấu hình hệ thống",
+    assignedAt: "2026-08-19T00:00:00.000Z",
   },
 ];
 const SYSTEM_MANAGED_OFFICER_EMAILS = new Set(SYSTEM_MANAGED_OFFICERS.map((officer) => officer.email));
@@ -1060,6 +1088,7 @@ function getRequiredServerAction(req: express.Request): ServerAction | null {
     "/api/data/sync-demographics",
     "/api/data/generate-mock",
     "/api/data/supabase-sync",
+    "/api/data/backup",
   ]);
   if (administrativeDataPaths.has(requestPath)) return "admin";
   if (requestPath.startsWith("/api/allowed-emails")) return "admin";
@@ -2452,6 +2481,42 @@ app.get("/api/data/supabase-status", async (req, res) => {
       pendingRegistrations: db.pendingRegistrations?.length || 0,
       documents: db.documents?.length || 0,
     },
+  });
+});
+
+// Export one complete, coherent database snapshot.  The data is read from the
+// same server-side snapshot after it has been refreshed from Supabase, rather
+// than mixing browser state with several independent API requests.
+app.get("/api/data/backup", (req, res) => {
+  const integrity = validateDemographicIntegrity(db.households || [], db.residents || []);
+  if (!integrity.valid) {
+    return res.status(409).json({
+      error: `Không thể xuất bản sao lưu chưa nhất quán: ${integrity.errors.join(" ")}`,
+    });
+  }
+
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.set("Content-Disposition", `attachment; filename="Sao_Luu_Toan_Bo_DB_Dan_Cu_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.json"`);
+  res.json({
+    format: "QLDC_FULL_BACKUP",
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    source: supabaseConfigured ? "Supabase app_records" : "Local development database",
+    integrity: {
+      households: db.households.length,
+      residents: db.residents.length,
+      valid: true,
+    },
+    households: db.households || [],
+    residents: db.residents || [],
+    businesses: db.businesses || [],
+    changes: db.changes || [],
+    criteria: db.criteria || [],
+    documents: db.documents || [],
+    logs: db.logs || [],
+    allowedEmails: db.allowedEmails || [],
+    pendingRegistrations: db.pendingRegistrations || [],
+    dismissedEmails: db.dismissedEmails || [],
   });
 });
 

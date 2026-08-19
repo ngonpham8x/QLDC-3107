@@ -1983,42 +1983,38 @@ const dataRefreshInFlightRef = useRef(false);
   };
 
   const handleExportJSONBackup = async () => {
-    if (currentUser?.role === UserRole.COLLABORATOR) {
-      alert("Cộng tác viên không được quyền tải xuống dữ liệu đã có sẵn trước đó.");
+    if (currentUser?.role !== UserRole.SUPER_ADMIN) {
+      alert("Chỉ Quản trị viên hệ thống được xuất bản sao lưu toàn bộ, vì tệp có chứa dữ liệu phân quyền.");
       return;
     }
     try {
-      const includeAccessControl = currentUser?.role === UserRole.SUPER_ADMIN;
-      const [docRes, allowedRes, pendingRes] = await Promise.all([
-        safeFetchJson("/api/documents"),
-        includeAccessControl ? safeFetchJson("/api/allowed-emails") : Promise.resolve({ ok: false, data: null }),
-        includeAccessControl ? safeFetchJson("/api/pending-registrations") : Promise.resolve({ ok: false, data: null }),
-      ]);
-      const documents = Array.isArray(docRes.data) ? docRes.data : [];
-      const backupData: Record<string, unknown> = { households, residents, businesses, changes, criteria, documents };
-      if (includeAccessControl) {
-        backupData.allowedEmails = Array.isArray(allowedRes.data) ? allowedRes.data : [];
-        backupData.pendingRegistrations = Array.isArray(pendingRes.data) ? pendingRes.data : [];
+      // A single server-side snapshot prevents data from different browser
+      // requests being mixed into one backup while another computer updates.
+      const backupResponse = await safeFetchJson("/api/data/backup", { cache: "no-store" });
+      if (!backupResponse.ok || !backupResponse.data || typeof backupResponse.data !== "object") {
+        throw new Error("Không thể lấy bản sao lưu thống nhất từ máy chủ.");
       }
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(
-        JSON.stringify(backupData, null, 2)
-      );
+
+      const backupData = backupResponse.data;
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: "application/json;charset=utf-8" });
+      const downloadUrl = URL.createObjectURL(blob);
       const downloadAnchor = document.createElement("a");
       const now = new Date();
       const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
       const filename = `Sao_Luu_Toan_Bo_DB_Dan_Cu_${dateStr}.json`;
       
-      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("href", downloadUrl);
       downloadAnchor.setAttribute("download", filename);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       document.body.removeChild(downloadAnchor);
+      URL.revokeObjectURL(downloadUrl);
 
       localStorage.setItem("last_backup_date", now.toISOString());
       setLastBackupDate(now.toISOString());
       setShowBackupReminder(false);
 
-      alert(`[SAO LƯU THÀNH CÔNG] Toàn bộ cơ sở dữ liệu dạng cấu trúc JSON đã được kết xuất thành công ra tệp tin: "${filename}".`);
+      alert(`[SAO LƯU THÀNH CÔNG] Một bản chụp JSON thống nhất của toàn bộ hệ thống đã được xuất ra tệp: "${filename}".`);
     } catch (error: any) {
       console.error("JSON Backup error:", error);
       alert(`[LỖI SAO LƯU JSON] Không thể tạo file sao lưu JSON: ${error.message}`);
@@ -3857,9 +3853,9 @@ if (authLoading || checkingAccess) {
                           </h4>
                           <p className="text-amber-700 text-xs mt-0.5 leading-relaxed font-medium">
                             {lastBackupDate ? (
-                              `Hệ thống ghi nhận lần sao lưu gần nhất: ${new Date(lastBackupDate).toLocaleDateString("vi-VN")} lúc ${new Date(lastBackupDate).toLocaleTimeString("vi-VN")}. Hãy xuất và lưu trữ dữ liệu sang Excel định kỳ để tránh sự cố mất dữ liệu.`
+                          `Hệ thống ghi nhận lần sao lưu gần nhất: ${new Date(lastBackupDate).toLocaleDateString("vi-VN")} lúc ${new Date(lastBackupDate).toLocaleTimeString("vi-VN")}. Hãy xuất và lưu trữ tệp JSON đầy đủ định kỳ để tránh sự cố mất dữ liệu.`
                             ) : (
-                              "Bạn chưa thực hiện sao lưu dữ liệu lần nào. Vui lòng xuất dữ liệu hệ thống ra tập tin Excel (XLSX) để đảm bảo an toàn."
+                              "Bạn chưa thực hiện sao lưu dữ liệu lần nào. Vui lòng xuất một tệp JSON đầy đủ của hệ thống để đảm bảo an toàn."
                             )}
                           </p>
                         </div>
@@ -3872,7 +3868,7 @@ if (authLoading || checkingAccess) {
                           Để sau
                         </button>
                         <button
-                          onClick={handleExportFullBackup}
+                          onClick={handleExportJSONBackup}
                           className="flex items-center gap-1.5 px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow transition-colors cursor-pointer"
                         >
                           <Download className="w-3.5 h-3.5" />
