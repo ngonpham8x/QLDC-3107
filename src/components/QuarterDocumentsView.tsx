@@ -68,6 +68,12 @@ export default function QuarterDocumentsView({ currentUser }: QuarterDocumentsVi
     fetchDocuments();
   }, []);
 
+  useEffect(() => {
+    const handleSystemSynchronization = () => void fetchDocuments();
+    window.addEventListener("qldc-data-synchronized", handleSystemSynchronization);
+    return () => window.removeEventListener("qldc-data-synchronized", handleSystemSynchronization);
+  }, []);
+
   // Filter documents
   const filteredDocuments = documents.filter(doc => {
     const matchesSearch = 
@@ -208,6 +214,9 @@ export default function QuarterDocumentsView({ currentUser }: QuarterDocumentsVi
     e.preventDefault();
     if (!formTitle.trim()) {
       alert("Vui lòng nhập tiêu đề tài liệu");
+      return;
+    }
+    if (formMode === "edit" && !window.confirm(`Xác nhận cập nhật tài liệu "${formTitle.trim()}"?`)) {
       return;
     }
 

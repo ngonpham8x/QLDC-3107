@@ -131,7 +131,7 @@ interface HouseholdViewProps {
   changes?: DemographicsChange[];
   currentUser: User | null;
   onAddHousehold: (household: Household) => Promise<void>;
-  onUpdateHousehold: (household: Household, originalId?: string) => Promise<void>;
+  onUpdateHousehold: (household: Household, originalId?: string) => Promise<boolean>;
   onDeleteHousehold: (id: string) => void;
   onExport?: (type: "xlsx" | "pdf", title: string, headers: string[], rows: any[][]) => void;
   isMobile?: boolean;
@@ -140,7 +140,7 @@ interface HouseholdViewProps {
   isSyncing?: boolean;
   isOnline?: boolean;
   onAddResident?: (resident: Resident) => Promise<void>;
-  onUpdateResident?: (resident: Resident, originalId?: string) => Promise<void>;
+  onUpdateResident?: (resident: Resident, originalId?: string, skipConfirmation?: boolean) => Promise<boolean>;
   existingEntityIds?: Set<string>;
 }
 
@@ -845,7 +845,8 @@ export default function HouseholdView({
         await onAddResident(ownerResidentData);
       }
     } else {
-      await onUpdateHousehold(householdData, originalFormId);
+      const householdWasUpdated = await onUpdateHousehold(householdData, originalFormId);
+      if (!householdWasUpdated) return;
       const existingOwner = residents.find(r =>
         r.id === formOwnerId ||
         r.id === finalOwnerId ||
@@ -854,9 +855,9 @@ export default function HouseholdView({
       if (existingOwner) {
         if (onUpdateResident) {
           if (existingOwner.id !== finalOwnerId) {
-            await onUpdateResident({ ...ownerResidentData, id: finalOwnerId }, existingOwner.id);
+            await onUpdateResident({ ...ownerResidentData, id: finalOwnerId }, existingOwner.id, true);
           } else {
-            await onUpdateResident(ownerResidentData);
+            await onUpdateResident(ownerResidentData, undefined, true);
           }
         }
       } else {

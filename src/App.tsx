@@ -56,6 +56,11 @@ const [checkingAccess, setCheckingAccess] = useState(true);
  */
 const checkingAccessRef = useRef(false);
 
+// A revision token is stored in Supabase.  It lets an open tab check for a
+// newer database without repeatedly downloading all residents.
+const dataRevisionRef = useRef<string | null>(null);
+const dataRefreshInFlightRef = useRef(false);
+
   // Login Form States
   const [loginPhone, setLoginPhone] = useState("");
   const [loginRole, setLoginRole] = useState<UserRole>(() => {
@@ -597,8 +602,10 @@ const checkingAccessRef = useRef(false);
   };
 
   // Fetch initial data from Express backend with offline fallbacks
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (dataRefreshInFlightRef.current) return;
+    dataRefreshInFlightRef.current = true;
+    if (!silent) setLoading(true);
     try {
       const safeJson = async (p: Promise<Response>) => {
         const res = await p;
@@ -612,13 +619,18 @@ const checkingAccessRef = useRef(false);
         return JSON.parse(await res.text());
       };
 
+      const revisionRequest = safeJson(fetch("/api/data/revision", { cache: "no-store" })).catch(() => null);
       const [hhRes, resRes, busRes, critRes, changesRes] = await Promise.all([
-        safeJson(fetch("/api/households")),
-        safeJson(fetch("/api/residents")),
-        safeJson(fetch("/api/businesses")),
-        safeJson(fetch("/api/criteria")),
-        safeJson(fetch("/api/changes"))
+        safeJson(fetch("/api/households", { cache: "no-store" })),
+        safeJson(fetch("/api/residents", { cache: "no-store" })),
+        safeJson(fetch("/api/businesses", { cache: "no-store" })),
+        safeJson(fetch("/api/criteria", { cache: "no-store" })),
+        safeJson(fetch("/api/changes", { cache: "no-store" }))
       ]);
+      const revisionData = await revisionRequest;
+      if (typeof revisionData?.revision === "string") {
+        dataRevisionRef.current = revisionData.revision;
+      }
 
       let hh = Array.isArray(hhRes) ? hhRes : (hhRes.households || []);
       let rs = Array.isArray(resRes) ? resRes : (resRes.residents || []);
@@ -731,7 +743,8 @@ const checkingAccessRef = useRef(false);
         return ids;
       });
     } finally {
-      setLoading(false);
+      dataRefreshInFlightRef.current = false;
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -821,6 +834,57 @@ const checkingAccessRef = useRef(false);
     if (authLoading || checkingAccess || !user || !token || !currentUser) return;
     void fetchData();
   }, [authLoading, checkingAccess, user, token, currentUser, fetchData]);
+
+  // Keep every signed-in computer aligned with Supabase.  The 5-second poll
+  // transfers only a timestamp; full data is reloaded only after another
+  // computer has successfully changed the shared database.  Focus/online
+  // events make a returning tab catch up immediately as well.
+  const refreshWhenServerDataChanges = useCallback(async () => {
+    if (document.visibilityState === "hidden" || dataRefreshInFlightRef.current) return;
+
+    try {
+      const response = await fetch("/api/data/revision", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = await response.json();
+      const nextRevision = typeof payload?.revision === "string" ? payload.revision : "";
+      if (!nextRevision) return;
+
+      if (!dataRevisionRef.current) {
+        dataRevisionRef.current = nextRevision;
+        return;
+      }
+      if (dataRevisionRef.current === nextRevision) return;
+
+      await fetchData({ silent: true });
+      if (dataRevisionRef.current === nextRevision) {
+        window.dispatchEvent(new Event("qldc-data-synchronized"));
+      }
+    } catch {
+      // Keep the current data and retry at the next interval/network event.
+    }
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (authLoading || checkingAccess || !user || !token || !currentUser) return;
+
+    void refreshWhenServerDataChanges();
+    const intervalId = window.setInterval(() => {
+      void refreshWhenServerDataChanges();
+    }, 5_000);
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") void refreshWhenServerDataChanges();
+    };
+
+    window.addEventListener("focus", refreshWhenServerDataChanges);
+    window.addEventListener("online", refreshWhenServerDataChanges);
+    document.addEventListener("visibilitychange", handleVisible);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshWhenServerDataChanges);
+      window.removeEventListener("online", refreshWhenServerDataChanges);
+      document.removeEventListener("visibilitychange", handleVisible);
+    };
+  }, [authLoading, checkingAccess, user, token, currentUser, refreshWhenServerDataChanges]);
 
   // Check security alerts periodically for SUPER_ADMIN
   useEffect(() => {
@@ -1156,7 +1220,10 @@ const checkingAccessRef = useRef(false);
     const oldId = originalId || updatedHh.id;
     if (!canUserPerformAction(currentUser, "edit")) {
       alert("Tài khoản Cộng tác viên của bạn bị hạn chế quyền chỉnh sửa dữ liệu.");
-      return;
+      return false;
+    }
+    if (!window.confirm(`Xác nhận cập nhật thông tin hộ dân ${updatedHh.ownerName || oldId}?`)) {
+      return false;
     }
     setHouseholds(prev => {
       const updated = prev.map(h => h.id === oldId ? updatedHh : h);
@@ -1203,12 +1270,14 @@ const checkingAccessRef = useRef(false);
         });
         if (offlineQueue.length > 0) triggerSync();
         await fetchData(); // Đồng bộ tự động lập tức toàn bộ hệ thống
+        return true;
       } else {
         throw new Error("Server error");
       }
     } catch (e) {
       console.warn("API update error, queuing offline action:", e);
       enqueueOfflineAction(`/api/households/${encodeURIComponent(oldId)}?${getUserQueryParams()}`, "PUT", updatedHh, `Cập nhật hộ gia đình: ${updatedHh.ownerName}`);
+      return false;
     }
   };
 
@@ -1303,11 +1372,14 @@ const checkingAccessRef = useRef(false);
     }
   };
 
-  const updateResident = async (updatedRes: Resident, originalId?: string) => {
+  const updateResident = async (updatedRes: Resident, originalId?: string, skipConfirmation = false) => {
     const residentId = originalId || updatedRes.id;
     if (!canUserPerformAction(currentUser, "edit")) {
       alert("Tài khoản Cộng tác viên của bạn bị hạn chế quyền chỉnh sửa dữ liệu.");
-      return;
+      return false;
+    }
+    if (!skipConfirmation && !window.confirm(`Xác nhận cập nhật thông tin nhân khẩu ${updatedRes.fullName || residentId}?`)) {
+      return false;
     }
     const linkedHh = households.find(h => h.id === updatedRes.householdId);
     const finalRes: Resident = linkedHh ? {
@@ -1353,12 +1425,14 @@ const checkingAccessRef = useRef(false);
         });
         if (offlineQueue.length > 0) triggerSync();
         await fetchData(); // Đồng bộ tự động lập tức toàn bộ hệ thống
+        return true;
       } else {
         throw new Error("Server error");
       }
     } catch (e) {
       console.warn("API update error, queuing offline action:", e);
       enqueueOfflineAction(`/api/residents/${encodeURIComponent(residentId)}?${getUserQueryParams()}`, "PUT", finalRes, `Cập nhật nhân khẩu: ${finalRes.fullName}`);
+      return false;
     }
   };
 
@@ -1451,7 +1525,10 @@ const checkingAccessRef = useRef(false);
   const updateBusiness = async (updatedBus: BusinessHousehold) => {
     if (!canUserPerformAction(currentUser, "edit")) {
       alert("Tài khoản Cộng tác viên của bạn bị hạn chế quyền chỉnh sửa dữ liệu.");
-      return;
+      return false;
+    }
+    if (!window.confirm(`Xác nhận cập nhật hộ kinh doanh ${updatedBus.name || updatedBus.id}?`)) {
+      return false;
     }
     setBusinesses(prev => {
       const updated = prev.map(b => b.id === updatedBus.id ? updatedBus : b);
@@ -1466,9 +1543,11 @@ const checkingAccessRef = useRef(false);
       });
       if (!res.ok) throw new Error("Server error");
       await fetchData(); // Synchronize all system data
+      return true;
     } catch (e) {
       console.warn("API update error, queuing offline action:", e);
       enqueueOfflineAction(`/api/businesses/${updatedBus.id}`, "PUT", updatedBus, `Cập nhật hộ kinh doanh: ${updatedBus.name}`);
+      return false;
     }
   };
 
@@ -1496,6 +1575,10 @@ const checkingAccessRef = useRef(false);
   };
 
   const updateCriteria = async (updated: RuralCriteria) => {
+    const isEditingExistingCriterion = criteria.some((criterion) => criterion.id === updated.id);
+    if (isEditingExistingCriterion && !window.confirm(`Xác nhận cập nhật tiêu chí "${updated.name}"?`)) {
+      return false;
+    }
     setCriteria(prev => {
       let updatedList = [];
       if (prev.some(c => c.id === updated.id)) {
@@ -1508,15 +1591,22 @@ const checkingAccessRef = useRef(false);
     });
 
     try {
-      const res = await fetch(`/api/criteria/${updated.id}`, {
-        method: "PUT",
+      const criteriaUrl = isEditingExistingCriterion ? `/api/criteria/${updated.id}` : "/api/criteria";
+      const criteriaMethod = isEditingExistingCriterion ? "PUT" : "POST";
+      const res = await fetch(criteriaUrl, {
+        method: criteriaMethod,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updated)
       });
       if (!res.ok) throw new Error("Server error");
+      await fetchData();
+      return true;
     } catch (e) {
       console.warn("API update error, queuing offline action:", e);
-      enqueueOfflineAction(`/api/criteria/${updated.id}`, "PUT", updated, `Cập nhật tiêu chí: ${updated.name}`);
+      const criteriaUrl = isEditingExistingCriterion ? `/api/criteria/${updated.id}` : "/api/criteria";
+      const criteriaMethod = isEditingExistingCriterion ? "PUT" : "POST";
+      enqueueOfflineAction(criteriaUrl, criteriaMethod, updated, `Cập nhật tiêu chí: ${updated.name}`);
+      return false;
     }
   };
 

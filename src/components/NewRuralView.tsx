@@ -19,7 +19,7 @@ interface NewRuralViewProps {
   households: Household[];
   residents?: Resident[];
   currentUser: User | null;
-  onUpdateCriteria: (updated: RuralCriteria) => void;
+  onUpdateCriteria: (updated: RuralCriteria) => Promise<boolean>;
   onExport?: (type: "xlsx" | "pdf", title: string, headers: string[], rows: any[][]) => void;
 }
 
@@ -119,7 +119,7 @@ export default function NewRuralView({
   const [formTarget, setFormTarget] = useState("");
   const [formStatus, setFormStatus] = useState<"Đạt" | "Chưa đạt">("Đạt");
 
-  const handleSubmitNewCriteria = (e: React.FormEvent) => {
+  const handleSubmitNewCriteria = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim() || !formValue.trim() || !formTarget.trim()) {
       alert("Vui lòng điền đủ tên, hiện trạng, và đích chỉ tiêu!");
@@ -136,7 +136,8 @@ export default function NewRuralView({
       lastUpdated: new Date().toISOString().split("T")[0]
     };
 
-    onUpdateCriteria(newCriteria);
+    const criterionWasSaved = await onUpdateCriteria(newCriteria);
+    if (!criterionWasSaved) return;
     setIsFormOpen(false);
     setFormName("");
     setFormValue("");

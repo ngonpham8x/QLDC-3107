@@ -71,6 +71,7 @@ export default function AllowedEmailsView() {
 
   const handleSaveRole = async () => {
     if (!editingEmail) return;
+    if (!window.confirm(`Xác nhận cập nhật vai trò/quyền của ${editingEmail.email}?`)) return;
     setError("");
     setSuccess("");
 
@@ -165,6 +166,12 @@ export default function AllowedEmailsView() {
     void fetchData();
   }, [authLoading, token, fetchData]);
 
+  useEffect(() => {
+    const handleSystemSynchronization = () => void fetchData();
+    window.addEventListener("qldc-data-synchronized", handleSystemSynchronization);
+    return () => window.removeEventListener("qldc-data-synchronized", handleSystemSynchronization);
+  }, [fetchData]);
+
   const handleQuickApprove = (email: string) => {
     setNewEmail(email);
     setNewRole(UserRole.WARD_LEADER);
@@ -225,6 +232,7 @@ export default function AllowedEmailsView() {
   };
 
   const handleDismissAlert = async (logId: string) => {
+    if (!window.confirm("Xác nhận xoá cảnh báo bảo mật này?")) return;
     setError("");
     setSuccess("");
 
@@ -308,6 +316,7 @@ export default function AllowedEmailsView() {
   };
 
   const handleApproveRegistration = async (id: string, email: string) => {
+    if (!window.confirm(`Xác nhận duyệt và cấp quyền cho ${email}?`)) return;
     setError("");
     setSuccess("");
 
@@ -335,6 +344,7 @@ export default function AllowedEmailsView() {
   };
 
   const handleRejectRegistration = async (id: string, email: string) => {
+    if (!window.confirm(`Xác nhận từ chối và xoá yêu cầu đăng ký của ${email}?`)) return;
     setError("");
     setSuccess("");
 

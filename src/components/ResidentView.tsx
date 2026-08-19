@@ -26,7 +26,7 @@ interface ResidentViewProps {
   changes?: DemographicsChange[];
   currentUser: User | null;
   onAddResident: (resident: Resident) => void;
-  onUpdateResident: (resident: Resident) => void;
+  onUpdateResident: (resident: Resident) => Promise<boolean>;
   onDeleteResident: (id: string) => void;
   onExport?: (type: "xlsx" | "pdf", title: string, headers: string[], rows: any[][]) => void;
   isMobile?: boolean;
@@ -461,7 +461,7 @@ export default function ResidentView({
   };
 
   // Submit Form
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formFullName.trim() || !formId.trim() || !formBirthDate) {
       alert("Họ tên, Số định danh/CCCD và Ngày sinh bắt buộc phải điền đầy đủ!");
@@ -521,7 +521,8 @@ export default function ResidentView({
     if (formMode === "add") {
       onAddResident(residentData);
     } else {
-      onUpdateResident(residentData);
+      const residentWasUpdated = await onUpdateResident(residentData);
+      if (!residentWasUpdated) return;
     }
     setIsFormOpen(false);
   };

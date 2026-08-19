@@ -827,11 +827,12 @@ async function syncAllToSupabase() {
 // Compatibility wrappers keep the existing route handlers small while the
 // backing store is now Supabase rather than Firestore.
 function trackSupabaseWrite(write: Promise<void>) {
-  const handledWrite = write.catch((err) => {
-    console.error("Supabase persistence failed:", err);
-  });
-  pendingSupabaseWrites.getStore()?.add(handledWrite);
-  return handledWrite;
+  // Do not turn a failed cloud write into a successful request.  In a
+  // serverless deployment the in-memory database is only a temporary cache;
+  // reporting success before Supabase has accepted the mutation is what made
+  // one browser appear updated while another browser still showed old data.
+  pendingSupabaseWrites.getStore()?.add(write);
+  return write;
 }
 
 function saveToFirestore(collectionName: string, item: any) {
@@ -934,6 +935,9 @@ function ensureDatabaseInitialized() {
 // Each serverless instance must load Supabase before serving its first request.
 app.use(async (_req, _res, next) => {
   try {
+    // The revision endpoint reads only the Supabase timestamp below.  Avoid
+    // downloading the full resident database for every lightweight poll.
+    if (_req.path === "/api/data/revision") return next();
     await ensureDatabaseInitialized();
     next();
   } catch (err) {
@@ -957,7 +961,17 @@ app.use((req, res, next) => {
       const writes = [...(pendingSupabaseWrites.getStore() || [])];
       if (writes.length === 0) return originalJson(body);
 
-      void Promise.allSettled(writes).then(() => originalJson(body));
+      void Promise.allSettled(writes).then((results) => {
+        const failedWrite = results.find((result) => result.status === "rejected");
+        if (failedWrite?.status === "rejected") {
+          console.error("Supabase persistence failed before API response:", failedWrite.reason);
+          res.status(503);
+          return originalJson({
+            error: "Dữ liệu chưa được đồng bộ lên máy chủ. Thao tác chưa được xác nhận; vui lòng thử lại khi có kết nối.",
+          });
+        }
+        return originalJson(body);
+      });
       return res;
     }) as typeof res.json;
 
@@ -1076,6 +1090,9 @@ app.use(async (req, res, next) => {
     req.path === "/api/auth/log-google"
     || req.path === "/api/auth/unauthorized-attempt"
     || req.path === "/api/auth/session-check"
+    // A valid Firebase session may read only the non-sensitive revision
+    // marker. It cannot read resident data without being on the allow-list.
+    || req.path === "/api/data/revision"
     || (req.method === "POST" && req.path === "/api/pending-registrations");
   if (selfServiceRequest || isAuthorizedDataUser(firebaseUser.email)) return next();
 
@@ -2400,6 +2417,30 @@ app.get("/api/data/supabase-status", (req, res) => {
   });
 });
 
+// A small, cache-free synchronization marker for open browser tabs.  The
+// marker is derived from Supabase itself, so it remains correct across
+// separate Vercel instances and different computers.
+app.get("/api/data/revision", async (_req, res) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+
+  if (!supabaseConfigured) {
+    const localRevision = db.logs?.[0]?.timestamp || "local-empty";
+    return res.json({ revision: `local:${localRevision}`, connected: false });
+  }
+
+  try {
+    const response = await supabaseRequest(
+      "app_records?select=updated_at&order=updated_at.desc&limit=1",
+    );
+    const records = await response.json() as Array<{ updated_at?: string }>;
+    const revision = records[0]?.updated_at || "cloud-empty";
+    return res.json({ revision: `supabase:${revision}`, connected: true });
+  } catch (err) {
+    console.error("Failed to read Supabase data revision:", err);
+    return res.status(503).json({ error: "Không thể kiểm tra phiên bản dữ liệu Supabase." });
+  }
+});
+
 // POST Synchronize the in-memory data with Supabase (Pull or Push).
 app.post("/api/data/supabase-sync", async (req, res) => {
   const direction = req.body.direction || "pull";
@@ -2830,6 +2871,34 @@ app.delete("/api/businesses/:id", (req, res) => {
 // GET criteria
 app.get("/api/criteria", (req, res) => {
   res.json(db.criteria);
+});
+
+// PUT update an existing criterion.  The client has always used this REST
+// route; keeping it explicit prevents a successful-looking local change from
+// being queued forever because of a 404 response.
+app.put("/api/criteria/:id", (req, res) => {
+  const { id } = req.params;
+  const index = db.criteria.findIndex((criterion) => criterion.id === id);
+  if (index === -1) {
+    return res.status(404).json({ error: "Không tìm thấy tiêu chí cần cập nhật." });
+  }
+
+  const updated: RuralCriteria = {
+    ...db.criteria[index],
+    ...req.body,
+    id,
+    lastUpdated: new Date().toISOString().split("T")[0],
+  };
+  db.criteria[index] = updated;
+  saveDatabase();
+  saveToFirestore("criteria", updated);
+  addLog(
+    req.query.user as string || "Hệ thống",
+    req.query.role as UserRole || UserRole.WARD_LEADER,
+    "Cập nhật tiêu chí",
+    `Cập nhật trạng thái tiêu chí Nông thôn mới: ${updated.name}`,
+  );
+  return res.json(updated);
 });
 
 // POST update/add criteria

@@ -19,7 +19,7 @@ interface BusinessViewProps {
   households: Household[];
   currentUser: User | null;
   onAddBusiness: (bus: BusinessHousehold) => void;
-  onUpdateBusiness: (bus: BusinessHousehold) => void;
+  onUpdateBusiness: (bus: BusinessHousehold) => Promise<boolean>;
   onDeleteBusiness: (id: string) => void;
   onExport?: (type: "xlsx" | "pdf", title: string, headers: string[], rows: any[][]) => void;
   existingEntityIds?: Set<string>;
@@ -130,7 +130,7 @@ export default function BusinessView({
     setIsFormOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim() || !formSector.trim() || !formTaxCode.trim() || !formLicense.trim() || !formAddress.trim()) {
       alert("Vui lòng điền đầy đủ các thông tin pháp lý của hộ kinh doanh!");
@@ -161,7 +161,8 @@ export default function BusinessView({
     if (formMode === "add") {
       onAddBusiness(businessData);
     } else {
-      onUpdateBusiness(businessData);
+      const businessWasUpdated = await onUpdateBusiness(businessData);
+      if (!businessWasUpdated) return;
     }
     setIsFormOpen(false);
   };
