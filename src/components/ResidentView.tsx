@@ -19,6 +19,7 @@ import { CccdQrScannerModal } from "./CccdQrScannerModal";
 import MapPickerModal from "./MapPickerModal";
 import { getCurrentGpsLocation } from "../utils/geolocation";
 import GoogleGISMap from "./GoogleGISMap";
+import IdCardImages from "./IdCardImages";
 
 interface ResidentViewProps {
   residents: Resident[];
@@ -191,6 +192,9 @@ export default function ResidentView({
   // Form Fields
   const [formId, setFormId] = useState(""); // CCCD / Personal ID
   const [formOldCmnd, setFormOldCmnd] = useState("");
+  const [formCccdIssuedDate, setFormCccdIssuedDate] = useState("");
+  const [formCccdFrontImagePath, setFormCccdFrontImagePath] = useState("");
+  const [formCccdBackImagePath, setFormCccdBackImagePath] = useState("");
   const [formFullName, setFormFullName] = useState("");
   const [formBirthDate, setFormBirthDate] = useState("");
   const [formGender, setFormGender] = useState<Gender>(Gender.MALE);
@@ -305,6 +309,9 @@ export default function ResidentView({
     setIsZoomed(false);
     setFormId("");
     setFormOldCmnd("");
+    setFormCccdIssuedDate("");
+    setFormCccdFrontImagePath("");
+    setFormCccdBackImagePath("");
     setFormFullName("");
     setFormBirthDate("");
     setFormGender(Gender.MALE);
@@ -346,6 +353,9 @@ export default function ResidentView({
     setIsZoomed(false);
     setFormId(r.id);
     setFormOldCmnd(r.oldCmnd || "");
+    setFormCccdIssuedDate(r.cccdIssuedDate || "");
+    setFormCccdFrontImagePath(r.cccdFrontImagePath || "");
+    setFormCccdBackImagePath(r.cccdBackImagePath || "");
     setFormFullName(r.fullName);
     setFormBirthDate(r.birthDate);
     setFormGender(r.gender);
@@ -478,6 +488,9 @@ export default function ResidentView({
     const residentData: Resident = {
       id: formId,
       oldCmnd: formOldCmnd.trim() || undefined,
+      cccdIssuedDate: formCccdIssuedDate || undefined,
+      cccdFrontImagePath: formCccdFrontImagePath || undefined,
+      cccdBackImagePath: formCccdBackImagePath || undefined,
       fullName: formFullName,
       birthDate: formBirthDate,
       gender: formGender,
@@ -601,7 +614,7 @@ export default function ResidentView({
     const customKeysArray = Array.from(customKeys);
 
     const headers = [
-      "STT", "Họ tên Nhân khẩu", "Số CCCD", "Định Danh VNeID", "CMND cũ", "Ngày sinh", "Tuổi", "Giới tính",
+      "STT", "Họ tên Nhân khẩu", "Số CCCD", "Ngày cấp CCCD", "Định Danh VNeID", "CMND cũ", "Ngày sinh", "Tuổi", "Giới tính",
       "Quan hệ với Chủ hộ", "Họ tên Chủ Hộ", "Số ĐT liên hệ", "Tổ dân phố", "Cư trú", "Địa chỉ Thường Trú", "Tạm Trú",
       "BHYT", "Trợ cấp xã hội", "Học vấn", "Nghề nghiệp", "Mã Hộ Gia Đình", "Tọa độ GPS GIS Hộ",
       ...customKeysArray
@@ -621,6 +634,7 @@ export default function ResidentView({
         idx + 1,
         r.fullName,
         r.id,
+        r.cccdIssuedDate || "",
         r.vneidStatus || "Chưa đăng ký",
         r.oldCmnd || "",
         r.birthDate,
@@ -1197,6 +1211,10 @@ export default function ResidentView({
                   <p className="text-sm font-semibold text-slate-800 mt-1 font-mono">{selectedResident.id}</p>
                 </div>
                 <div>
+                  <p className="font-bold text-slate-400 uppercase text-[9px] tracking-wider">Ngày cấp CCCD</p>
+                  <p className="text-sm font-medium text-slate-800 mt-1">{selectedResident.cccdIssuedDate ? formatDate(selectedResident.cccdIssuedDate) : "Chưa cập nhật"}</p>
+                </div>
+                <div>
                   <p className="font-bold text-slate-400 uppercase text-[9px] tracking-wider">Số CMND cũ</p>
                   <p className="text-sm font-semibold text-slate-800 mt-1 font-mono">{selectedResident.oldCmnd || "Chưa cập nhật"}</p>
                 </div>
@@ -1553,7 +1571,28 @@ export default function ResidentView({
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-emerald-600 font-mono"
                   />
                 </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ngày cấp CCCD</label>
+                  <input
+                    type="date"
+                    value={formCccdIssuedDate}
+                    onChange={(e) => setFormCccdIssuedDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-emerald-600"
+                  />
+                </div>
               </div>
+
+              <IdCardImages
+                entityType="resident"
+                entityId={formId}
+                frontPath={formCccdFrontImagePath || undefined}
+                backPath={formCccdBackImagePath || undefined}
+                onChange={({ frontPath, backPath }) => {
+                  setFormCccdFrontImagePath(frontPath || "");
+                  setFormCccdBackImagePath(backPath || "");
+                }}
+                disabled={currentUser?.role !== UserRole.SUPER_ADMIN}
+              />
 
               <div className="grid grid-cols-3 gap-4">
                 <div>

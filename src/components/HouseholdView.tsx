@@ -18,6 +18,7 @@ import { CccdQrScannerModal } from "./CccdQrScannerModal";
 import MapPickerModal from "./MapPickerModal";
 import { getCurrentGpsLocation } from "../utils/geolocation";
 import GoogleGISMap from "./GoogleGISMap";
+import IdCardImages from "./IdCardImages";
 import Zoom from "react-medium-image-zoom";
 import "react-medium-image-zoom/dist/styles.css";
 
@@ -225,6 +226,9 @@ export default function HouseholdView({
   // Detailed Owner Resident States
   const [ownerCccd, setOwnerCccd] = useState("");
   const [ownerOldCmnd, setOwnerOldCmnd] = useState("");
+  const [ownerCccdIssuedDate, setOwnerCccdIssuedDate] = useState("");
+  const [ownerCccdFrontImagePath, setOwnerCccdFrontImagePath] = useState("");
+  const [ownerCccdBackImagePath, setOwnerCccdBackImagePath] = useState("");
   const [ownerPhone, setOwnerPhone] = useState("");
   const [ownerBirthDate, setOwnerBirthDate] = useState("");
   const [ownerGender, setOwnerGender] = useState<Gender>(Gender.MALE);
@@ -593,6 +597,9 @@ export default function HouseholdView({
     // Reset owner resident fields
     setOwnerCccd("");
     setOwnerOldCmnd("");
+    setOwnerCccdIssuedDate("");
+    setOwnerCccdFrontImagePath("");
+    setOwnerCccdBackImagePath("");
     setOwnerPhone("");
     setOwnerBirthDate("");
     setOwnerGender(Gender.MALE);
@@ -644,6 +651,9 @@ export default function HouseholdView({
     if (ownerRes) {
       setOwnerCccd(ownerRes.id);
       setOwnerOldCmnd(ownerRes.oldCmnd || h.ownerOldCmnd || "");
+      setOwnerCccdIssuedDate(ownerRes.cccdIssuedDate || h.ownerCccdIssuedDate || "");
+      setOwnerCccdFrontImagePath(ownerRes.cccdFrontImagePath || h.ownerCccdFrontImagePath || "");
+      setOwnerCccdBackImagePath(ownerRes.cccdBackImagePath || h.ownerCccdBackImagePath || "");
       setOwnerPhone(ownerRes.phone || "");
       setOwnerBirthDate(ownerRes.birthDate || "");
       setOwnerGender(ownerRes.gender || Gender.MALE);
@@ -660,6 +670,9 @@ export default function HouseholdView({
     } else {
       setOwnerCccd(h.ownerId || "");
       setOwnerOldCmnd(h.ownerOldCmnd || "");
+      setOwnerCccdIssuedDate(h.ownerCccdIssuedDate || "");
+      setOwnerCccdFrontImagePath(h.ownerCccdFrontImagePath || "");
+      setOwnerCccdBackImagePath(h.ownerCccdBackImagePath || "");
       setOwnerPhone("");
       setOwnerBirthDate("");
       setOwnerGender(Gender.MALE);
@@ -778,6 +791,9 @@ export default function HouseholdView({
       id: formId,
       ownerId: finalOwnerId,
       ownerOldCmnd: ownerOldCmnd.trim() || undefined,
+      ownerCccdIssuedDate: ownerCccdIssuedDate || undefined,
+      ownerCccdFrontImagePath: ownerCccdFrontImagePath || undefined,
+      ownerCccdBackImagePath: ownerCccdBackImagePath || undefined,
       ownerName: formOwnerName,
       address: formAddress,
       wardId: formWard,
@@ -803,6 +819,9 @@ export default function HouseholdView({
     const ownerResidentData: Resident = {
       id: finalOwnerId,
       oldCmnd: ownerOldCmnd.trim() || undefined,
+      cccdIssuedDate: ownerCccdIssuedDate || undefined,
+      cccdFrontImagePath: ownerCccdFrontImagePath || undefined,
+      cccdBackImagePath: ownerCccdBackImagePath || undefined,
       fullName: formOwnerName,
       birthDate: ownerBirthDate,
       gender: ownerGender,
@@ -873,7 +892,7 @@ export default function HouseholdView({
     const customKeysArray = Array.from(customKeys);
 
     const headers = [
-      "STT", "Mã Hộ Gia Đình", "Họ Tên Chủ Hộ", "CCCD Chủ Hộ", "Định Danh VNeID", "CMND cũ Chủ Hộ", "SĐT Liên Hệ", "Tuổi Chủ Hộ", "Số Nhân Khẩu", 
+      "STT", "Mã Hộ Gia Đình", "Họ Tên Chủ Hộ", "CCCD Chủ Hộ", "Ngày cấp CCCD", "Định Danh VNeID", "CMND cũ Chủ Hộ", "SĐT Liên Hệ", "Tuổi Chủ Hộ", "Số Nhân Khẩu",
       "Địa Chỉ Chi Tiết", "Tổ dân phố", "Tọa độ GPS GIS", "Phân Loại Thế Hệ", "Trạng Thái Hộ", "Nước Sạch", "Thu Gom Rác", "Loại Hộ", "Ghi Chú",
       ...customKeysArray
     ];
@@ -893,6 +912,7 @@ export default function HouseholdView({
         h.id,
         h.ownerName,
         h.ownerId || ownerResident?.id || "",
+        h.ownerCccdIssuedDate || ownerResident?.cccdIssuedDate || "",
         vneidStatusVal,
         ownerOldCmnd,
         ownerPhone,
@@ -1675,6 +1695,10 @@ export default function HouseholdView({
                       <strong className="text-slate-900">Số CMND cũ chủ hộ:</strong>{" "}
                       <span className="font-mono font-medium">{selectedHousehold.ownerOldCmnd || residents.find(r => r.householdId === selectedHousehold.id && r.relationToOwner === "Chủ hộ")?.oldCmnd || "Chưa cập nhật"}</span>
                     </p>
+                    <p>
+                      <strong className="text-slate-900">Ngày cấp CCCD chủ hộ:</strong>{" "}
+                      <span className="font-medium">{selectedHousehold.ownerCccdIssuedDate || residents.find(r => r.householdId === selectedHousehold.id && r.relationToOwner === "Chủ hộ")?.cccdIssuedDate || "Chưa cập nhật"}</span>
+                    </p>
                   </div>
 
                   {/* Cột phải: Hình ảnh thực địa (click để zoom) */}
@@ -1988,7 +2012,7 @@ export default function HouseholdView({
                   THÔNG TIN NHÂN KHẨU CHỦ HỘ *
                 </h4>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Số CCCD / Định danh *</label>
                     <input
@@ -2013,7 +2037,28 @@ export default function HouseholdView({
                       className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none text-xs"
                     />
                   </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ngày cấp CCCD</label>
+                    <input
+                      type="date"
+                      value={ownerCccdIssuedDate}
+                      onChange={(e) => setOwnerCccdIssuedDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none text-xs"
+                    />
+                  </div>
                 </div>
+
+                <IdCardImages
+                  entityType="household"
+                  entityId={formId}
+                  frontPath={ownerCccdFrontImagePath || undefined}
+                  backPath={ownerCccdBackImagePath || undefined}
+                  onChange={({ frontPath, backPath }) => {
+                    setOwnerCccdFrontImagePath(frontPath || "");
+                    setOwnerCccdBackImagePath(backPath || "");
+                  }}
+                  disabled={currentUser?.role !== UserRole.SUPER_ADMIN}
+                />
 
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Số điện thoại *</label>

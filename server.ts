@@ -7,6 +7,7 @@ import express from "express";
 import * as XLSX from "xlsx-js-style";
 import fs from "fs";
 import path from "path";
+import { createHash, randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
@@ -63,6 +64,9 @@ const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/$/, "") || "";
 const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const supabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+const ID_CARD_STORAGE_BUCKET = "id-card-documents";
+const ID_CARD_MAX_BYTES = 2 * 1024 * 1024;
+let idCardBucketInitialization: Promise<void> | null = null;
 const FIREBASE_CONFIG_PATH = path.join(process.cwd(), "firebase-applet-config.json");
 const firebaseWebApiKey = (() => {
   if (process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY) {
@@ -628,6 +632,56 @@ async function supabaseRequest(pathname: string, init: RequestInit = {}) {
   return response;
 }
 
+async function supabaseStorageRequest(pathname: string, init: RequestInit = {}) {
+  if (!supabaseConfigured) {
+    throw new Error("Supabase Storage chưa được cấu hình.");
+  }
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/${pathname}`, {
+    ...init,
+    headers: supabaseHeaders(init.headers),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(`Supabase Storage request failed (${response.status}): ${details}`);
+  }
+  return response;
+}
+
+async function ensureIdCardStorageBucket() {
+  if (!idCardBucketInitialization) {
+    idCardBucketInitialization = (async () => {
+      if (!supabaseConfigured) throw new Error("Supabase Storage chưa được cấu hình.");
+      const response = await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+        method: "POST",
+        headers: supabaseHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          id: ID_CARD_STORAGE_BUCKET,
+          name: ID_CARD_STORAGE_BUCKET,
+          public: false,
+          file_size_limit: ID_CARD_MAX_BYTES,
+          allowed_mime_types: ["image/jpeg", "image/png", "image/webp"],
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      // Creating an existing bucket is expected after the first request.
+      if (!response.ok && response.status !== 409) {
+        const details = await response.text().catch(() => "");
+        throw new Error(`Không thể tạo kho ảnh CCCD (${response.status}): ${details}`);
+      }
+    })().catch((error) => {
+      idCardBucketInitialization = null;
+      throw error;
+    });
+  }
+  return idCardBucketInitialization;
+}
+
+function isValidIdCardStoragePath(pathname: unknown) {
+  return typeof pathname === "string"
+    && /^(household|resident)\/[a-f0-9]{64}\/(front|back)-[a-f0-9-]+\.jpg$/.test(pathname);
+}
+
 async function loadFromSupabase(): Promise<boolean> {
   if (!supabaseConfigured) {
     console.log("Supabase not configured; using the local JSON database.");
@@ -970,6 +1024,9 @@ function getRequiredServerAction(req: express.Request): ServerAction | null {
     && (method !== "POST" || requestPath !== "/api/pending-registrations")
   ) return "admin";
   if (requestPath === "/api/export") return "export";
+  // CCCD images are highly sensitive identity documents. Only a super
+  // administrator can upload, delete, or obtain a short-lived viewing URL.
+  if (requestPath.startsWith("/api/id-card-images")) return "admin";
 
   const managedResources = ["/api/households", "/api/residents", "/api/businesses", "/api/changes", "/api/criteria", "/api/documents"];
   if (!managedResources.some((resource) => requestPath === resource || requestPath.startsWith(`${resource}/`))) {
@@ -2378,6 +2435,89 @@ app.post("/api/data/supabase-sync", async (req, res) => {
   }
 });
 
+// Private CCCD image storage. Images never enter app_records or browser
+// backups; only their opaque Storage paths are retained with the record.
+app.post("/api/id-card-images", async (req, res) => {
+  const { entityType, entityId, side, mimeType, dataBase64 } = req.body || {};
+  if (!supabaseConfigured) {
+    return res.status(503).json({ error: "Supabase Storage chưa được cấu hình trên Vercel." });
+  }
+  if ((entityType !== "household" && entityType !== "resident") || (side !== "front" && side !== "back")) {
+    return res.status(400).json({ error: "Loại hồ sơ hoặc mặt CCCD không hợp lệ." });
+  }
+  if (typeof entityId !== "string" || !entityId.trim() || entityId.length > 200) {
+    return res.status(400).json({ error: "Mã hộ hoặc số CCCD không hợp lệ." });
+  }
+  if (mimeType !== "image/jpeg" || typeof dataBase64 !== "string" || dataBase64.length > 2_900_000) {
+    return res.status(400).json({ error: "Ảnh CCCD phải là JPEG đã nén, tối đa 2 MB." });
+  }
+
+  const image = Buffer.from(dataBase64, "base64");
+  if (!image.length || image.length > ID_CARD_MAX_BYTES) {
+    return res.status(400).json({ error: "Ảnh CCCD vượt giới hạn 2 MB." });
+  }
+
+  try {
+    await ensureIdCardStorageBucket();
+    const recordHash = createHash("sha256").update(`${entityType}:${entityId.trim()}`).digest("hex");
+    const objectPath = `${entityType}/${recordHash}/${side}-${randomUUID()}.jpg`;
+    await supabaseStorageRequest(`object/${ID_CARD_STORAGE_BUCKET}/${objectPath}`, {
+      method: "POST",
+      headers: { "Content-Type": "image/jpeg", "x-upsert": "true" },
+      body: image,
+    });
+    addLog((req as any).firebaseUser?.email || "Quản trị viên", UserRole.SUPER_ADMIN, "Lưu ảnh CCCD", `Đã lưu ảnh mặt ${side === "front" ? "trước" : "sau"} CCCD cho ${entityType}.`);
+    return res.status(201).json({ path: objectPath });
+  } catch (error) {
+    console.error("Failed to store CCCD image:", error);
+    return res.status(500).json({ error: "Không thể lưu ảnh CCCD vào Supabase Storage." });
+  }
+});
+
+app.get("/api/id-card-images/signed-url", async (req, res) => {
+  const objectPath = req.query.path;
+  if (!isValidIdCardStoragePath(objectPath)) {
+    return res.status(400).json({ error: "Đường dẫn ảnh CCCD không hợp lệ." });
+  }
+  try {
+    await ensureIdCardStorageBucket();
+    const response = await supabaseStorageRequest(`object/sign/${ID_CARD_STORAGE_BUCKET}/${objectPath}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn: 300 }),
+    });
+    const signed = await response.json();
+    const signedPath = signed?.signedURL || signed?.signedUrl;
+    if (typeof signedPath !== "string") throw new Error("Supabase did not return a signed URL.");
+    const url = signedPath.startsWith("http")
+      ? signedPath
+      : `${SUPABASE_URL}/storage/v1${signedPath.startsWith("/") ? signedPath : `/${signedPath}`}`;
+    return res.json({ url });
+  } catch (error) {
+    console.error("Failed to sign CCCD image URL:", error);
+    return res.status(500).json({ error: "Không thể mở ảnh CCCD." });
+  }
+});
+
+app.delete("/api/id-card-images", async (req, res) => {
+  const objectPath = req.query.path;
+  if (!isValidIdCardStoragePath(objectPath)) {
+    return res.status(400).json({ error: "Đường dẫn ảnh CCCD không hợp lệ." });
+  }
+  try {
+    await ensureIdCardStorageBucket();
+    await supabaseStorageRequest(`object/${ID_CARD_STORAGE_BUCKET}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prefixes: [objectPath] }),
+    });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Failed to delete CCCD image:", error);
+    return res.status(500).json({ error: "Không thể xóa ảnh CCCD." });
+  }
+});
+
 // GET all households
 app.get("/api/households", (req, res) => {
   res.json(db.households);
@@ -2551,6 +2691,9 @@ app.post("/api/residents", (req, res) => {
       db.households[hIndex].ownerId = newResident.id;
       db.households[hIndex].ownerName = newResident.fullName;
       db.households[hIndex].ownerOldCmnd = newResident.oldCmnd;
+      db.households[hIndex].ownerCccdIssuedDate = newResident.cccdIssuedDate;
+      db.households[hIndex].ownerCccdFrontImagePath = newResident.cccdFrontImagePath;
+      db.households[hIndex].ownerCccdBackImagePath = newResident.cccdBackImagePath;
       saveToFirestore("households", db.households[hIndex]);
     }
   }
@@ -2589,6 +2732,9 @@ app.put("/api/residents/:id", (req, res) => {
       if (hIndex !== -1) {
         db.households[hIndex].ownerName = db.residents[index].fullName;
         db.households[hIndex].ownerOldCmnd = db.residents[index].oldCmnd;
+        db.households[hIndex].ownerCccdIssuedDate = db.residents[index].cccdIssuedDate;
+        db.households[hIndex].ownerCccdFrontImagePath = db.residents[index].cccdFrontImagePath;
+        db.households[hIndex].ownerCccdBackImagePath = db.residents[index].cccdBackImagePath;
         saveToFirestore("households", db.households[hIndex]);
       }
     }

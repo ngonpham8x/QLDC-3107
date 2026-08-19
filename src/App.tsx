@@ -635,6 +635,9 @@ const checkingAccessRef = useRef(false);
             ownerId: r.id,
             ownerName: r.fullName,
             ownerOldCmnd: r.oldCmnd,
+            ownerCccdIssuedDate: r.cccdIssuedDate,
+            ownerCccdFrontImagePath: r.cccdFrontImagePath,
+            ownerCccdBackImagePath: r.cccdBackImagePath,
             address: r.permanentAddress || r.temporaryAddress || "Chưa cập nhật địa chỉ",
             wardId: r.wardId || "Tổ 5",
             status: "Bình thường" as any,
@@ -1259,6 +1262,9 @@ const checkingAccessRef = useRef(false);
           ...h,
           ownerName: finalRes.fullName,
           ownerId: finalRes.id,
+          ownerCccdIssuedDate: finalRes.cccdIssuedDate,
+          ownerCccdFrontImagePath: finalRes.cccdFrontImagePath,
+          ownerCccdBackImagePath: finalRes.cccdBackImagePath,
           phone: finalRes.phone || h.phone
         } : h);
         syncOfflineCache("households", updated);
@@ -1318,6 +1324,9 @@ const checkingAccessRef = useRef(false);
           ...h,
           ownerName: finalRes.fullName,
           ownerId: finalRes.id,
+          ownerCccdIssuedDate: finalRes.cccdIssuedDate,
+          ownerCccdFrontImagePath: finalRes.cccdFrontImagePath,
+          ownerCccdBackImagePath: finalRes.cccdBackImagePath,
           phone: finalRes.phone || h.phone
         } : h);
         syncOfflineCache("households", updated);

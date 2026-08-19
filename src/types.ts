@@ -101,6 +101,9 @@ export interface Household {
   id: string; // Mã hộ gia đình (e.g. Hộ-10023)
   ownerId: string; // Mã nhân khẩu của chủ hộ
   ownerOldCmnd?: string; // Số CMND cũ của chủ hộ
+  ownerCccdIssuedDate?: string; // Ngày cấp CCCD của chủ hộ (YYYY-MM-DD)
+  ownerCccdFrontImagePath?: string; // Đường dẫn ảnh mặt trước CCCD trong Supabase Storage
+  ownerCccdBackImagePath?: string; // Đường dẫn ảnh mặt sau CCCD trong Supabase Storage
   ownerName: string; // Tên chủ hộ lưu nhanh
   phone?: string; // Số điện thoại liên hệ chủ hộ
   address: string;
@@ -134,6 +137,9 @@ notes?: string;
 export interface Resident {
   id: string; // Mã định danh / CCCD
   oldCmnd?: string; // Số CMND 9 số cũ (nếu có)
+  cccdIssuedDate?: string; // Ngày cấp CCCD (YYYY-MM-DD)
+  cccdFrontImagePath?: string; // Đường dẫn ảnh mặt trước CCCD trong Supabase Storage
+  cccdBackImagePath?: string; // Đường dẫn ảnh mặt sau CCCD trong Supabase Storage
   vneidStatus?: VNeIDStatus | string; // Định danh VNeID cá nhân (Mức 1, Mức 2, Chưa đăng ký)
   fullName: string;
   birthDate: string;
