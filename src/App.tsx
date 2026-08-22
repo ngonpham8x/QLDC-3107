@@ -189,8 +189,16 @@ const dataRefreshInFlightRef = useRef(false);
       const googleDisplayName = user.displayName;
 
       const selectedRole = (typeof window !== "undefined" && localStorage.getItem("selected_login_role")) || loginRole;
+      // Send the freshly issued Firebase token explicitly.  This avoids a
+      // redirect/PWA timing race where the global fetch wrapper has not yet
+      // attached Authorization when access is checked for the first time.
+      const idToken = await user.getIdToken();
       const res = await fetch(
-        `/api/auth/session-check?email=${encodeURIComponent(email)}&requestedRole=${encodeURIComponent(selectedRole)}`
+        `/api/auth/session-check?email=${encodeURIComponent(email)}&requestedRole=${encodeURIComponent(selectedRole)}`,
+        {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${idToken}` },
+        },
       );
 
       if (!res.ok) {
@@ -274,6 +282,7 @@ const dataRefreshInFlightRef = useRef(false);
     } catch (err) {
       console.error(err);
       setCurrentUser(null);
+      setLoginError("Không thể xác nhận phiên đăng nhập Google. Vui lòng đăng nhập lại; nếu lỗi còn lặp lại, hãy kiểm tra kết nối mạng.");
     } finally {
       checkingAccessRef.current = false;
       setCheckingAccess(false);
@@ -908,14 +917,6 @@ const dataRefreshInFlightRef = useRef(false);
     setGoogleLoading(true);
     setLoginError("");
     try {
-      // Installed PWAs run as standalone windows. Redirect is more reliable
-      // there because the application window loses focus during Google OAuth.
-      const isStandalonePwa = window.matchMedia?.("(display-mode: standalone)").matches
-        || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-      if (isStandalonePwa) {
-        await contextLoginWithRedirect();
-        return;
-      }
       await contextLogin();
     } catch (error: any) {
       const errorStr = (error && error.message) ? String(error.message).toLowerCase() : "";
