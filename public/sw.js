@@ -1,4 +1,4 @@
-const CACHE_NAME = 'qldc-ninh-phu-v2';
+const CACHE_NAME = 'qldc-ninh-phu-v3';
 const urlsToCache = [
   '/',
   '/index.html',

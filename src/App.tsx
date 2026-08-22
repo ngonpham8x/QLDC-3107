@@ -908,6 +908,14 @@ const dataRefreshInFlightRef = useRef(false);
     setGoogleLoading(true);
     setLoginError("");
     try {
+      // Installed PWAs run as standalone windows. Redirect is more reliable
+      // there because the application window loses focus during Google OAuth.
+      const isStandalonePwa = window.matchMedia?.("(display-mode: standalone)").matches
+        || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+      if (isStandalonePwa) {
+        await contextLoginWithRedirect();
+        return;
+      }
       await contextLogin();
     } catch (error: any) {
       const errorStr = (error && error.message) ? String(error.message).toLowerCase() : "";
