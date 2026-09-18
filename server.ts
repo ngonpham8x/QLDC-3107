@@ -1191,6 +1191,9 @@ app.get("/api/auth/google/url", (req, res) => {
 
 // Simulated Google Account Selector Page (when client ID isn't set up yet)
 app.get("/api/auth/google/mock-auth", (req, res) => {
+  if (isVercel || process.env.NODE_ENV === "production") {
+    return res.status(404).send("Not found");
+  }
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -1315,6 +1318,9 @@ app.get(["/api/auth/callback", "/api/auth/callback/", "/auth/callback", "/auth/c
   let role = UserRole.COLLABORATOR;
 
   if (code === "mock_code") {
+    if (isVercel || process.env.NODE_ENV === "production") {
+      return res.status(410).send("Mock OAuth is disabled in production.");
+    }
     email = (req.query.email as string) || "binh.nguyen@kp-ninhphu.gov.vn";
     name = (req.query.name as string) || "Nguyễn Tấn Bình";
     const qRole = req.query.role as string;
@@ -1529,10 +1535,17 @@ app.post("/api/users/setup", (req, res) => {
 });
 
 app.post("/api/auth/send-otp", async (req, res) => {
-  const email = String(req.body?.email || "").trim().toLowerCase();
+  const firebaseUser = (req as any).firebaseUser as VerifiedFirebaseUser | undefined;
+  const requestedEmail = String(req.body?.email || "").trim().toLowerCase();
+  const email = firebaseUser?.email?.toLowerCase() || "";
   const phone = String(req.body?.phone || "").trim();
+
+  if (!email || (requestedEmail && requestedEmail !== email)) {
+    return res.status(403).json({ error: "Không thể tạo mã 2FA cho tài khoản khác." });
+  }
+
   const allowedUser = db.allowedEmails?.find(entry => entry.email.toLowerCase() === email);
-  if (!email || !allowedUser) {
+  if (!allowedUser && !SUPER_ADMIN_EMAILS.has(email)) {
     return res.status(403).json({ error: "Tài khoản chưa được cấp quyền xác thực 2FA." });
   }
 
@@ -1556,13 +1569,19 @@ app.post("/api/auth/send-otp", async (req, res) => {
   return res.json({
     success: true,
     message: "Mã xác thực OTP 2FA đã được tạo thành công.",
-    phone: phone || (allowedUser as any).phone || "0912345678",
-    developmentCode: code,
+    phone: phone || (allowedUser as any)?.phone || "",
+    ...(!isVercel && process.env.NODE_ENV !== "production" ? { developmentCode: code } : {}),
   });
 });
 
 app.post("/api/auth/verify-otp", (req, res) => {
-  const email = String(req.body?.email || "").trim().toLowerCase();
+  const firebaseUser = (req as any).firebaseUser as VerifiedFirebaseUser | undefined;
+  const requestedEmail = String(req.body?.email || "").trim().toLowerCase();
+  const email = firebaseUser?.email?.toLowerCase() || "";
+  if (!email || (requestedEmail && requestedEmail !== email)) {
+    return res.status(403).json({ error: "Không thể xác thực 2FA cho tài khoản khác." });
+  }
+
   const code = String(req.body?.code || "").trim();
   const record = otpStore.get(email);
   const allowedUser = db.allowedEmails?.find(entry => entry.email.toLowerCase() === email);
