@@ -8,3 +8,7 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Never commit resident/household production data
+data/*.json
+!data/example*.json
